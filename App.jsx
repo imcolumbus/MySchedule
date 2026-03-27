@@ -23,15 +23,18 @@ import {
   Clock,
   AlertTriangle,
   RefreshCw,
-  Info
+  Info,
+  CalendarRange,
+  X
 } from 'lucide-react';
 
 /**
  * [버전 정보]
- * v1.1.2 (2024-05-24)
- * - 빌드 호환성 수정: import.meta 경고 해결을 위한 안전한 환경 변수 접근 로직 적용
- * - 파싱 로직 강화: Vercel Value에 포함된 불필요한 JS 코드(const...) 자동 제거 및 JSON 강제 변환
- * - UI 개선: 설정 오류 시 사용자 대응 가이드 시각화
+ * v1.2.0 (2024-05-24)
+ * - 전문가급 UX/UI 전면 개편: 고대비 대형 폰트 및 모던 카드 디자인
+ * - 기간 일정 기능 추가: 시작일 ~ 종료일 설정 가능
+ * - 모바일 최적화: 터치 영역 확대 및 시니어 친화적 레이아웃
+ * - 환경 변수 파싱 로직 안정성 유지
  */
 
 // 1. Firebase 설정값 안전하게 추출 및 파싱
@@ -42,22 +45,17 @@ const getFirebaseConfig = () => {
     if (!cleaned || cleaned === '{}') return null;
 
     try {
-      // 주석 및 JS 선언부 제거 (가장 강력한 필터링)
       cleaned = cleaned.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1');
       cleaned = cleaned.replace(/(const|let|var)\s+\w+\s*=\s*/g, '');
       cleaned = cleaned.trim().replace(/;$/, '');
-      
-      // 중괄호 { } 구간만 추출
       const firstBrace = cleaned.indexOf('{');
       const lastBrace = cleaned.lastIndexOf('}');
       if (firstBrace !== -1 && lastBrace !== -1) {
         cleaned = cleaned.substring(firstBrace, lastBrace + 1);
       }
-
       try {
         return JSON.parse(cleaned);
       } catch (e) {
-        // 따옴표가 없는 키값 등을 보정하여 JSON으로 변환 시도
         const fixed = cleaned
           .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
           .replace(/'/g, '"')
@@ -70,18 +68,11 @@ const getFirebaseConfig = () => {
     }
   };
 
-  // 환경 변수 탐색 (Vite의 정적 교체와 호환되도록 구성)
   let source = null;
-  
-  // A. 전역 객체 확인
   if (typeof __firebase_config !== 'undefined') source = __firebase_config;
-  
-  // B. process.env 확인 (Vercel Node 환경)
   if (!source && typeof process !== 'undefined' && process.env) {
     source = process.env.VITE_FIREBASE_CONFIG || process.env.__firebase_config;
   }
-
-  // C. Vite 환경 변수 확인 (빌드 시 실제 값으로 치환됨)
   if (!source) {
     try {
       // @ts-ignore
@@ -89,7 +80,6 @@ const getFirebaseConfig = () => {
       if (viteEnv) source = viteEnv;
     } catch (e) {}
   }
-
   return parseConfig(source);
 };
 
@@ -106,12 +96,18 @@ function App() {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  
+  // 입력 폼 상태
   const [newTitle, setNewTitle] = useState('');
   const [newTime, setNewTime] = useState('');
-  const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newStartDate, setNewStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newEndDate, setNewEndDate] = useState(''); // 기간 일정용
+  const [isRange, setIsRange] = useState(false);
 
-  const today = new Date();
-  const dateString = today.toLocaleDateString('ko-KR', {
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // 오늘의 날짜 표시 (매우 크게)
+  const dateDisplay = new Date().toLocaleDateString('ko-KR', {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
   });
 
@@ -137,7 +133,8 @@ function App() {
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
     const unsubscribe = onSnapshot(schedulesRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSchedules(data.sort((a, b) => new Date(`${a.date} ${a.time || '00:00'}`) - new Date(`${b.date} ${b.time || '00:00'}`)));
+      // 시작일 순으로 정렬
+      setSchedules(data.sort((a, b) => new Date(a.startDate) - new Date(b.startDate)));
       setLoading(false);
     }, (err) => {
       console.error("Firestore Error:", err);
@@ -151,9 +148,18 @@ function App() {
     if (!newTitle.trim() || !db) return;
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), {
-        title: newTitle, time: newTime, date: newDate, createdAt: serverTimestamp(), author: user.uid
+        title: newTitle, 
+        time: newTime, 
+        startDate: newStartDate, 
+        endDate: isRange ? newEndDate : newStartDate,
+        createdAt: serverTimestamp(), 
+        author: user.uid
       });
-      setNewTitle(''); setShowAddForm(false);
+      // 초기화
+      setNewTitle('');
+      setNewTime('');
+      setIsRange(false);
+      setShowAddForm(false);
     } catch (e) { console.error(e); }
   };
 
@@ -162,50 +168,31 @@ function App() {
     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
   };
 
+  // 오늘 이후의 일정만 필터링 (종료일 기준으로 오늘이 포함되거나 미래인 것)
   const categorizedSchedules = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return schedules.filter(s => s.date >= todayStr);
-  }, [schedules]);
+    return schedules.filter(s => (s.endDate || s.startDate) >= todayStr);
+  }, [schedules, todayStr]);
 
   // 설정 오류 시 안내 화면
   if (!app || !firebaseConfig?.apiKey) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-[3rem] p-10 shadow-2xl max-w-md w-full border-t-[16px] border-red-500 text-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center">
+        <div className="bg-white rounded-[3rem] p-10 shadow-2xl max-w-md w-full border-t-[16px] border-red-500">
           <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8">
             <AlertTriangle className="text-red-500" size={48} />
           </div>
-          <h1 className="text-3xl font-black text-slate-800 mb-6">최종 확인 필요</h1>
-          
-          <div className="text-left space-y-6 mb-10">
-            <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
-              <p className="font-black text-blue-900 mb-3 flex items-center gap-2 text-xl italic">
-                <Info size={24} /> 필수 작업!
-              </p>
-              <p className="text-blue-800 text-base leading-relaxed">
-                Vercel 대시보드의 <strong>Value</strong> 칸에 있는 내용을 <strong>중괄호 <code className="bg-white px-1">{'{ }'}</code>만 남기고 모두 지워주세요.</strong>
-                <br/><span className="text-sm opacity-70">(앞의 const... 부분은 삭제해야 안전합니다)</span>
-              </p>
-            </div>
-
-            <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100">
-              <p className="font-black text-indigo-900 mb-2 flex items-center gap-2 text-xl">
-                <span className="bg-indigo-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-black">1</span>
-                Redeploy 필수
-              </p>
-              <p className="text-indigo-700 text-base leading-relaxed">
-                설정을 바꾼 뒤에는 반드시 Vercel의 <strong>Deployments</strong> 탭에서 <strong>Redeploy</strong> 버튼을 눌러야 앱에 적용됩니다.
-              </p>
-            </div>
+          <h1 className="text-3xl font-black text-slate-800 mb-6">앱 설정 확인</h1>
+          <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 text-left mb-6">
+            <p className="font-black text-blue-900 mb-3 flex items-center gap-2 text-xl">
+              <Info size={24} /> 필수 작업
+            </p>
+            <p className="text-blue-800 leading-relaxed text-lg">
+              Vercel 대시보드 환경 변수값에서 <strong>중괄호 {'{ }'} 부분만</strong> 남기고 다시 배포해 주세요.
+            </p>
           </div>
-
-          <div className="pt-6 border-t border-slate-100">
-            <p className="text-slate-400 text-xs font-bold mb-3 uppercase tracking-widest italic">Current Debug Info</p>
-            <div className="bg-slate-900 text-emerald-400 p-5 rounded-2xl font-mono text-[11px] text-left shadow-inner overflow-hidden">
-               &gt; VITE_CONFIG: {firebaseConfig ? "FOUND" : "NOT_DETECTED"}
-               <br/>&gt; API_KEY: {firebaseConfig?.apiKey ? "OK" : "MISSING"}
-               <br/>&gt; Status: Waiting for Redeploy...
-            </div>
+          <div className="bg-slate-900 text-emerald-400 p-5 rounded-2xl font-mono text-xs text-left">
+             &gt; VITE_CONFIG: {firebaseConfig ? "FOUND" : "NOT_DETECTED"}
+             <br/>&gt; API_KEY: {firebaseConfig?.apiKey ? "OK" : "MISSING"}
           </div>
         </div>
       </div>
@@ -213,77 +200,150 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 font-sans">
-      <header className="bg-indigo-600 text-white p-8 pt-12 rounded-b-[3rem] shadow-xl sticky top-0 z-10">
-        <div className="max-w-md mx-auto text-center">
-          <p className="text-indigo-100 text-xl font-medium mb-2">어머니의 행복한 하루</p>
-          <h1 className="text-3xl font-black leading-tight tracking-tight drop-shadow-sm">{dateString}</h1>
+    <div className="min-h-screen bg-[#F8F9FD] text-slate-900 pb-28 font-sans">
+      {/* 상단 헤더: 어머니를 위한 아주 큰 날짜 표시 */}
+      <header className="bg-white px-8 pt-16 pb-10 rounded-b-[4rem] shadow-[0_10px_40px_rgba(0,0,0,0.04)] sticky top-0 z-20">
+        <div className="max-w-md mx-auto">
+          <p className="text-indigo-600 font-black text-xl mb-2 tracking-tighter">어머니의 하루 🌸</p>
+          <h1 className="text-4xl font-black leading-[1.2] text-slate-900 break-keep">
+            {dateDisplay}
+          </h1>
         </div>
       </header>
 
       <main className="max-w-md mx-auto px-6 mt-10">
         {loading ? (
           <div className="text-center py-32">
-            <RefreshCw className="mx-auto text-indigo-400 animate-spin mb-6" size={56} />
-            <p className="text-slate-400 font-black text-2xl">일정을 가져오는 중...</p>
+            <RefreshCw className="mx-auto text-indigo-300 animate-spin mb-6" size={60} />
+            <p className="text-slate-400 font-black text-2xl">정보를 가져오고 있습니다</p>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-10">
             {categorizedSchedules.length === 0 ? (
-              <div className="bg-white rounded-[3rem] p-16 text-center border-4 border-dotted border-slate-200 shadow-sm opacity-80">
-                <Calendar className="mx-auto text-slate-100 mb-6" size={72} />
-                <p className="text-slate-400 text-2xl font-black leading-relaxed">아직 등록된 일정이<br/>없습니다</p>
+              <div className="bg-white rounded-[3.5rem] p-20 text-center shadow-sm border-2 border-dashed border-slate-200">
+                <Calendar className="mx-auto text-slate-100 mb-6" size={80} />
+                <p className="text-slate-400 text-2xl font-black">아직 일정이<br/>없습니다</p>
               </div>
             ) : (
-              categorizedSchedules.map((item) => (
-                <div key={item.id} className="bg-white rounded-[2.5rem] p-8 shadow-[0_4px_20px_rgba(0,0,0,0.05)] border-l-[14px] border-indigo-500 transition-all active:scale-[0.98]">
-                  <div className="flex justify-between items-start gap-6">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className="px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-base font-black shadow-sm">
-                          {item.date === new Date().toISOString().split('T')[0] ? '오늘' : item.date.slice(5).replace('-', '월 ') + '일'}
-                        </span>
-                        {item.time && <span className="flex items-center text-slate-500 gap-1.5 font-black text-xl"><Clock size={22} className="text-indigo-400"/> {item.time}</span>}
+              categorizedSchedules.map((item) => {
+                const isToday = item.startDate <= todayStr && (item.endDate || item.startDate) >= todayStr;
+                const dateText = item.startDate === item.endDate 
+                  ? `${item.startDate.slice(5).replace('-', '월 ')}일`
+                  : `${item.startDate.slice(8)}일 ~ ${item.endDate.slice(5).replace('-', '월 ')}일`;
+
+                return (
+                  <div 
+                    key={item.id} 
+                    className={`bg-white rounded-[3rem] p-8 shadow-[0_15px_45px_rgba(0,0,0,0.06)] border-l-[16px] transition-all active:scale-[0.97] ${
+                      isToday ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex-1">
+                        <div className="flex flex-wrap items-center gap-3 mb-4">
+                          <span className={`px-5 py-2 rounded-full text-lg font-black shadow-sm ${
+                            isToday ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {isToday ? '진행중' : '예정'}
+                          </span>
+                          <span className="text-slate-500 font-black text-2xl">
+                            {dateText}
+                          </span>
+                        </div>
+                        
+                        <h3 className="text-[2.25rem] font-black text-slate-900 leading-[1.15] mb-4 break-keep">
+                          {item.title}
+                        </h3>
+
+                        {item.time && (
+                          <div className="flex items-center text-indigo-600 font-black text-2xl gap-2 bg-white w-fit px-4 py-2 rounded-2xl shadow-sm border border-indigo-50">
+                            <Clock size={24} strokeWidth={3} />
+                            {item.time}
+                          </div>
+                        )}
                       </div>
-                      <h3 className="text-3xl font-black text-slate-800 leading-tight">{item.title}</h3>
+                      <button 
+                        onClick={() => handleDelete(item.id)} 
+                        className="p-4 bg-slate-50 text-slate-300 rounded-full hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={32}/>
+                      </button>
                     </div>
-                    <button onClick={() => handleDelete(item.id)} className="p-3 text-slate-200 hover:text-red-500 transition-all"><Trash2 size={36}/></button>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
       </main>
 
-      <div className="fixed bottom-8 right-8 flex flex-col items-end gap-6 max-w-md w-full px-8 left-1/2 -translate-x-1/2 pointer-events-none">
+      {/* 일정 추가 버튼 및 입력 폼 */}
+      <div className="fixed bottom-10 right-10 flex flex-col items-end gap-6 max-w-md w-full px-10 left-1/2 -translate-x-1/2 pointer-events-none">
         {showAddForm && (
-          <div className="bg-white w-full rounded-[3rem] shadow-[0_25px_70px_-15px_rgba(0,0,0,0.3)] p-8 mb-4 border border-slate-100 pointer-events-auto animate-in slide-in-from-bottom-10 duration-500 ease-out z-30">
-            <h2 className="text-2xl font-black mb-6 text-slate-800 text-center">새 일정 적기</h2>
-            <form onSubmit={handleAddSchedule} className="space-y-6">
+          <div className="bg-white w-full rounded-[4rem] shadow-[0_30px_100px_-15px_rgba(0,0,0,0.4)] p-10 mb-6 border border-slate-100 pointer-events-auto animate-in slide-in-from-bottom-20 duration-500 ease-out z-30">
+            <div className="flex justify-between items-center mb-8">
+               <h2 className="text-3xl font-black text-slate-800">새 일정 적기</h2>
+               <button onClick={() => setShowAddForm(false)} className="text-slate-300"><X size={36}/></button>
+            </div>
+            
+            <form onSubmit={handleAddSchedule} className="space-y-8">
               <div>
-                <label className="block text-slate-400 font-bold mb-2 ml-2">어떤 일정인가요?</label>
-                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="예: 병원 가는 날" className="w-full text-2xl p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-4 focus:ring-indigo-100 shadow-inner font-bold" autoFocus />
+                <label className="block text-slate-400 font-black mb-3 ml-2 text-lg">내용</label>
+                <input 
+                  type="text" 
+                  value={newTitle} 
+                  onChange={(e) => setNewTitle(e.target.value)} 
+                  placeholder="예: 병원 가는 날" 
+                  className="w-full text-[2rem] p-6 bg-slate-50 rounded-[2rem] border-none focus:ring-4 focus:ring-indigo-100 shadow-inner font-black" 
+                  autoFocus 
+                />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* 기간 설정 토글 */}
+              <div className="flex items-center justify-between p-2 bg-slate-50 rounded-[2rem] px-6">
+                <span className="text-xl font-black text-slate-700">여러 날 동안 진행</span>
+                <button 
+                  type="button"
+                  onClick={() => setIsRange(!isRange)}
+                  className={`w-16 h-10 rounded-full transition-colors relative ${isRange ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                >
+                  <div className={`absolute top-1 bg-white w-8 h-8 rounded-full transition-transform ${isRange ? 'translate-x-7' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-2 ml-2">날짜</label>
-                  <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none text-xl font-bold shadow-inner" />
+                  <label className="block text-slate-400 font-black mb-3 ml-2 text-lg">{isRange ? '시작일' : '날짜'}</label>
+                  <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] border-none text-2xl font-black shadow-inner" />
                 </div>
-                <div>
-                  <label className="block text-slate-400 font-bold mb-2 ml-2">시간</label>
-                  <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none text-xl font-bold shadow-inner" />
-                </div>
+                {isRange && (
+                  <div>
+                    <label className="block text-slate-400 font-black mb-3 ml-2 text-lg">종료일</label>
+                    <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] border-none text-2xl font-black shadow-inner" />
+                  </div>
+                )}
+                {!isRange && (
+                  <div>
+                    <label className="block text-slate-400 font-black mb-3 ml-2 text-lg">시간 (선택)</label>
+                    <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-6 bg-slate-50 rounded-[2rem] border-none text-2xl font-black shadow-inner" />
+                  </div>
+                )}
               </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowAddForm(false)} className="flex-1 py-5 bg-slate-100 rounded-[1.5rem] font-black text-xl text-slate-500 active:scale-95 transition-transform">취소</button>
-                <button type="submit" className="flex-[2] py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-xl shadow-lg shadow-indigo-200 active:scale-95 transition-transform">일정 저장</button>
-              </div>
+              
+              <button 
+                type="submit" 
+                className="w-full py-7 bg-indigo-600 text-white rounded-[2.5rem] font-black text-[1.75rem] shadow-2xl shadow-indigo-200 active:scale-95 transition-transform"
+              >
+                일정 저장하기
+              </button>
             </form>
           </div>
         )}
-        <button onClick={() => setShowAddForm(!showAddForm)} className="pointer-events-auto w-20 h-20 rounded-full bg-indigo-600 flex items-center justify-center shadow-[0_12px_40px_rgba(79,70,229,0.5)] transition-all active:scale-90 z-40 hover:bg-indigo-700">
-          <Plus size={48} color="white" style={{ transform: showAddForm ? 'rotate(45deg)' : 'none', transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
+        <button 
+          onClick={() => setShowAddForm(!showAddForm)} 
+          className="pointer-events-auto w-24 h-24 rounded-full bg-indigo-600 flex items-center justify-center shadow-[0_15px_50px_rgba(79,70,229,0.5)] transition-all active:scale-90 z-40 hover:bg-indigo-700"
+        >
+          <Plus size={56} color="white" style={{ transform: showAddForm ? 'rotate(45deg)' : 'none', transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
         </button>
       </div>
     </div>
