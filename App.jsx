@@ -1,11 +1,9 @@
 /**
  * [버전 정보]
- * v1.5.0 (2024-05-24)
- * - UI/UX 대규모 개편: '건강 매니저' 스타일의 프리미엄 그린 테마 적용
- * - 레이아웃 최적화: 시인성이 높은 라운드 카드 시스템 및 고대비 폰트
- * - 기능 추가: 상세 내용 및 장소 필드 시각화 개선
- * - 입력 인터페이스: 단순 버튼 클릭형 모달로 개선
- * - PC/모바일 하이브리드: 화면 크기에 따른 최적화된 보기 모드 제공
+ * v1.5.1 (2024-05-24)
+ * - 설정 오류 해결: 환경 변수(VITE_FIREBASE_CONFIG) 인식 로직 대폭 강화
+ * - 빌드 환경 호환성 개선: 다양한 환경 변수 접근 방식 지원
+ * - 디버깅 UI 추가: 설정 실패 시 원인 파악을 위한 상태 정보 및 조치 방법 표시
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -46,33 +44,65 @@ import {
   CalendarDays
 } from 'lucide-react';
 
-// 1. Firebase 설정값 추출 및 파싱 로직
+// 1. Firebase 설정값 추출 및 파싱 로직 강화
 const getFirebaseConfig = () => {
   const parseConfig = (raw) => {
     if (!raw) return null;
     let cleaned = String(raw).trim();
     if (!cleaned || cleaned === '{}') return null;
+    
     try {
+      // 주석 및 JS 변수 선언부(const/let/var) 제거
       cleaned = cleaned.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1');
       cleaned = cleaned.replace(/(const|let|var)\s+\w+\s*=\s*/g, '');
       cleaned = cleaned.trim().replace(/;$/, '');
+      
       const firstBrace = cleaned.indexOf('{');
       const lastBrace = cleaned.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1) cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+      }
+      
       try {
+        // 1차: 표준 JSON 파싱
         return JSON.parse(cleaned);
       } catch (e) {
-        const fixed = cleaned.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*([\]}])/g, '$1');
+        // 2차: 따옴표 없는 키 등 비표준 형태 보정 후 재시도
+        const fixed = cleaned
+          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+          .replace(/'/g, '"')
+          .replace(/,\s*([\]}])/g, '$1');
         return JSON.parse(fixed);
       }
-    } catch (err) { return null; }
+    } catch (err) {
+      console.error("Config Parsing Error:", err);
+      return null;
+    }
   };
-  let source = (typeof __firebase_config !== 'undefined' ? __firebase_config : null) || 
-               (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_CONFIG : null);
-  return parseConfig(source);
+
+  let source = null;
+  // 1순위: 전역 변수 (__firebase_config)
+  if (typeof __firebase_config !== 'undefined') source = __firebase_config;
+  
+  // 2순위: Vite 환경 변수 (import.meta.env) - 빌드 타임 주입
+  if (!source) {
+    try {
+      // @ts-ignore
+      source = import.meta.env.VITE_FIREBASE_CONFIG;
+    } catch (e) {}
+  }
+
+  // 3순위: process.env (Vercel 기본/Node)
+  if (!source && typeof process !== 'undefined' && process.env) {
+    source = process.env.VITE_FIREBASE_CONFIG || process.env.__firebase_config;
+  }
+
+  return { config: parseConfig(source), rawSource: source };
 };
 
-const firebaseConfig = getFirebaseConfig();
+const { config: firebaseConfig, rawSource } = getFirebaseConfig();
+
+// Firebase 초기화 (apiKey 존재 여부 확인)
 const app = (firebaseConfig && firebaseConfig.apiKey) ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
@@ -142,12 +172,32 @@ function App() {
     return schedules.filter(s => (s.endDate || s.startDate) >= todayStr);
   }, [schedules, todayStr]);
 
+  // 설정 오류 시 안내 화면 (Firebase 초기화 실패 시)
   if (!app) return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-center font-sans">
-      <div className="bg-white p-10 rounded-[3rem] shadow-2xl border-t-8 border-red-500">
-        <AlertTriangle className="text-red-500 mx-auto mb-4" size={64} />
-        <h1 className="text-3xl font-black text-slate-800">설정 오류</h1>
-        <p className="mt-4 text-slate-500 text-lg">Firebase 환경 변수를 확인해 주세요.</p>
+    <div className="min-h-screen bg-[#F7F9FB] flex items-center justify-center p-6 text-center font-sans">
+      <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full border-t-[16px] border-red-500">
+        <AlertTriangle className="text-red-500 mx-auto mb-6" size={64} />
+        <h1 className="text-3xl font-black text-slate-800 mb-6">설정 확인 필요</h1>
+        
+        <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 text-left mb-8">
+          <p className="font-black text-blue-900 mb-3 flex items-center gap-2 text-xl">
+            <Info size={24} /> 해결 방법
+          </p>
+          <ul className="text-blue-800 space-y-2 font-bold leading-relaxed">
+            <li>1. Vercel 환경 변수 이름이 <code className="bg-white px-1">VITE_FIREBASE_CONFIG</code> 인지 확인</li>
+            <li>2. 값에 중괄호 <code className="bg-white px-1">{"{ }"}</code> 데이터만 들어있는지 확인</li>
+            <li>3. 저장 후 반드시 <strong>Redeploy</strong>를 실행</li>
+          </ul>
+        </div>
+
+        <div className="text-left border-t border-slate-100 pt-6">
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Debug Information</p>
+          <div className="bg-slate-900 text-emerald-400 p-4 rounded-2xl font-mono text-[10px] break-all max-h-40 overflow-auto shadow-inner leading-relaxed">
+             &gt; Variable Detected: {rawSource ? "YES" : "NO"}
+             <br/>&gt; API Key Present: {firebaseConfig?.apiKey ? "YES" : "NO"}
+             <br/>&gt; Status: Initializing Failed
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -162,7 +212,7 @@ function App() {
           </div>
           <div>
             <h1 className="text-2xl font-black flex items-center gap-1 text-[#4A6D00]">
-              나의 일정 <span className="text-slate-300 font-bold text-sm tracking-tighter">v1.5.0</span>
+              나의 일정 <span className="text-slate-300 font-bold text-sm tracking-tighter">v1.5.1</span>
             </h1>
           </div>
         </div>
