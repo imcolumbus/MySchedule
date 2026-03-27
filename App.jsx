@@ -1,9 +1,9 @@
 /**
  * [버전 정보]
- * v1.23.0 (2026-03-28)
- * - 이전 버전 롤백 현상 복구: 딥그린(#508A12) 테마, 달력 뷰, D-Day 기능 등 최신 사양 전면 복구
- * - 모바일 가족연동 버튼 시인성 강화: 모바일 화면에서도 '가족연동' 글자가 명확히 보이도록 헤더 버튼 디자인 수정
- * - 구글 간편 로그인(Google Auth) 및 개인 비공개 보안 경로(users/UID/schedules) 완벽 적용
+ * v1.24.0 (2026-03-28)
+ * - 모바일 헤더 레이아웃 최적화: 시스템 폰트가 매우 큰 기기에서도 상단 날짜가 말줄임표(...)로 잘리지 않고 1줄로 표시되도록 버튼 간격 압축 및 글자 크기 범위 하향 조정
+ * - 모달 스크롤 추가: 가족 연동 팝업 내용이 작은 스마트폰 화면 밖으로 잘리지 않도록 내부에 스크롤(max-h-[90vh], overflow-y-auto) 추가
+ * - 빈 일정 안내 문구 보강: 일정이 없을 경우 '가족 연동'을 확인하라는 안내 문구 추가
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -555,45 +555,49 @@ export default function App() {
   // 메인 앱
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 md:py-4 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-2">
-          <div className="flex-1 overflow-hidden pr-1 flex items-center gap-2">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(17px,5.5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+      {/* [수정 사항] 
+        - 날짜가 "..." 으로 잘리는 현상 방지: 글자 크기 범위(clamp)의 최소값을 대폭 하향 조정 (14px)
+        - 버튼 간격(gap) 및 버튼 내부 패딩(px)을 바짝 압축하여 왼쪽 글자가 차지할 공간 최대화 
+      */}
+      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 transition-colors duration-300">
+        <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
+          <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(14px,3.8vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
-            {linkedUid && <span className="hidden sm:inline-block bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 text-[10px] md:text-sm font-bold px-2 py-0.5 rounded-lg border border-orange-200 dark:border-orange-800 whitespace-nowrap">가족 연동됨</span>}
+            {linkedUid && <span className="hidden sm:inline-block bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 text-[10px] md:text-sm font-bold px-1.5 py-0.5 rounded-md border border-orange-200 dark:border-orange-800 whitespace-nowrap">가족 연동됨</span>}
           </div>
           
-          <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
-            {/* 홈/달력 버튼 */}
+          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+            {/* 홈/달력 버튼 사이즈 압축 */}
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
                 setCalendarMonth(new Date());
               }}
-              className="flex items-center justify-center min-w-[50px] md:min-w-[80px] px-3 py-1.5 md:px-6 md:py-3 bg-[#508A12] text-white rounded-full font-black text-[14px] md:text-xl active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center min-w-[40px] px-2.5 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-md"
             >
               {isCalendarView ? '홈' : '달력'}
             </button>
             
-            {/* 가족연동 버튼 - 텍스트 명시적으로 표시 */}
+            {/* 가족연동 버튼 여백 압축 */}
             <button 
               onClick={() => setShowSettings(true)}
-              className={`flex items-center justify-center px-3 py-1.5 md:px-4 md:py-2.5 rounded-full font-black transition-all ${linkedUid ? 'bg-orange-100 text-orange-600 hover:bg-orange-200 dark:bg-orange-900/50 dark:text-orange-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200'}`}
+              className={`flex items-center justify-center px-2 py-1.5 md:px-3 md:py-2 rounded-full font-black transition-all ${linkedUid ? 'bg-orange-100 text-orange-600 hover:bg-orange-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200'}`}
               title="가족 연동"
             >
-              <Users size={16} className="md:w-5 md:h-5" />
-              <span className="ml-1 text-[12px] md:text-sm whitespace-nowrap">{linkedUid ? '연동됨' : '가족연동'}</span>
+              <Users size={14} className="md:w-4 md:h-4" />
+              <span className="ml-0.5 text-[11px] md:text-xs whitespace-nowrap">{linkedUid ? '연동됨' : '가족연동'}</span>
             </button>
 
-            {/* 로그아웃 버튼 */}
+            {/* 로그아웃 버튼 여백 압축 */}
             <button 
               onClick={handleLogout}
-              className="flex items-center justify-center p-2 md:px-4 md:py-2.5 rounded-full transition-all bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200"
+              className="flex items-center justify-center p-1.5 md:px-3 md:py-2 rounded-full transition-all bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-400 hover:bg-slate-200"
               title="로그아웃"
             >
-              <LogOut size={18} className="md:w-5 md:h-5" />
+              <LogOut size={16} className="md:w-4 md:h-4" />
             </button>
           </div>
         </div>
@@ -690,18 +694,23 @@ export default function App() {
                 </div>
               ))}
               {displaySchedules.length === 0 && (
-                <div className="py-10 text-center">
+                <div className="py-8 text-center bg-white dark:bg-slate-800 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-700 mx-2">
                   {showTrash ? (
                     <>
-                      <Trash size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                      <Trash size={40} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
                       <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
                     </>
                   ) : (
                     <>
-                      <CalendarDays size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                      <p className="text-slate-400 dark:text-slate-500 font-black text-[clamp(1rem,3.5vw,1.3rem)]">
-                        {isCalendarView ? '선택한 날짜에 일정이 없습니다' : '예정된 일정이 없습니다'}
+                      <CalendarDays size={40} className="mx-auto mb-3 text-[#508A12] opacity-40" />
+                      <p className="text-slate-500 dark:text-slate-400 font-black text-[clamp(1.1rem,4vw,1.4rem)] mb-2">
+                        {isCalendarView ? '이 날짜에는 등록된 일정이 없습니다.' : '예정된 일정이 없습니다.'}
                       </p>
+                      {!linkedUid && !isCalendarView && (
+                        <p className="text-sm font-bold text-slate-400 dark:text-slate-500 mt-2 px-4 break-keep">
+                          💡 상단의 <strong className="text-[#508A12]">가족연동</strong> 버튼을 눌러 연동 코드를 입력하시면<br/>질문자님이 작성하신 일정을 바로 보실 수 있습니다.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
@@ -763,7 +772,8 @@ export default function App() {
       {/* 가족 연동 설정 모달 */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] p-6 md:p-8 shadow-2xl">
+          {/* [수정] 모달 내용이 길어져 잘리는 현상 방지: max-h-[90vh] 와 overflow-y-auto 추가 */}
+          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] p-5 md:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
                <h2 className="text-xl md:text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
                  <Users className="text-[#508A12]" size={28} /> 가족 계정 연동
@@ -773,11 +783,11 @@ export default function App() {
                </button>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-5 md:space-y-6">
               <div className="bg-slate-50 dark:bg-slate-700/50 p-4 md:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
                 <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">내 연동 코드</h3>
                 <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 leading-relaxed break-keep">
-                  어머니의 핸드폰 앱에서 아래 코드를 <span className="text-[#508A12]">[복사]</span>하여, 가족(질문자님)의 PC에 붙여넣으시면 일정을 실시간으로 공유할 수 있습니다.
+                  이 핸드폰에서 아래 코드를 <span className="text-[#508A12]">[복사]</span>하여, 다른 폰(가족)에 붙여넣으시면 내 일정을 공유할 수 있습니다.
                 </p>
                 <div className="flex gap-2">
                   <input type="text" readOnly value={user?.uid || ''} className="flex-1 w-0 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-sm px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 outline-none" />
@@ -788,7 +798,7 @@ export default function App() {
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-700/50 p-4 md:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
-                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">어머니 일정 관리하기</h3>
+                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">가족 일정 불러오기</h3>
                 
                 {linkedUid ? (
                   <div>
@@ -796,20 +806,20 @@ export default function App() {
                       현재 가족의 일정과 완벽하게 연동되어 있습니다.<br/>(코드: <span className="font-mono text-[#508A12]">{linkedUid.slice(0,8)}...</span>)
                     </p>
                     <button onClick={handleUnlink} className="w-full py-4 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-black rounded-xl hover:bg-red-200 transition-colors">
-                      연동 해제하고 내 일정 보기
+                      연동 해제하고 내 캘린더 보기
                     </button>
                   </div>
                 ) : (
                   <div>
                     <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 break-keep">
-                      어머니의 핸드폰에서 복사한 '연동 코드'를 아래 빈칸에 붙여넣으세요.
+                      가족의 핸드폰에서 복사한 '연동 코드'를 아래 빈칸에 붙여넣으세요.
                     </p>
                     <input 
                       type="text" 
                       value={linkInput} 
                       onChange={(e) => setLinkInput(e.target.value)} 
                       placeholder="여기에 코드를 붙여넣으세요" 
-                      className="w-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white px-4 py-4 rounded-xl border border-slate-200 dark:border-slate-600 mb-3 outline-none focus:border-[#508A12]"
+                      className="w-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 mb-3 outline-none focus:border-[#508A12]"
                     />
                     <button onClick={handleLinkAccount} disabled={!linkInput.trim()} className="w-full py-4 bg-slate-800 text-white dark:bg-slate-600 font-black rounded-xl hover:bg-slate-700 transition-colors disabled:opacity-50">
                       일정 연동 시작하기
