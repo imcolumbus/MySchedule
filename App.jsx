@@ -1,10 +1,11 @@
 /**
  * [버전 정보]
- * v1.10.0 (2024-05-24)
- * - 가독성 극대화: 일정 목록 내 시간 및 장소 폰트 사이즈 및 아이콘 크기 대폭 확대
- * - 지난 일정 보기 기능 추가: 하단 토글 버튼을 통해 과거 일정을 펼쳐볼 수 있는 기능(Accordion) 구현
- * - UI 개선: 과거 일정은 시각적으로 덜 띄도록 회색톤 배지 적용
- * - 기존 기능 유지: 모바일 뷰어 전용 모드 및 시차 버그 픽스 유지
+ * v1.11.0 (2024-05-24)
+ * - 다크 모드(Dark Mode) 자동 지원: 어두운 곳에서 눈부심 방지를 위한 테마 적용 (시스템 설정 연동)
+ * - 공간 최적화: 불필요한 섹션 제목("오늘 및 주요 일정", "예정된 전체 일정") 및 과도한 여백 완벽 제거
+ * - 가독성 극대화: 일정 날짜/요일, 시간, 위치, 메모 폰트 사이즈를 이전보다 훨씬 더 크게 확대
+ * - 달력 보기 기능: 화면 상단 달력 버튼을 통해 직관적이고 큼직한 달력으로 일정을 확인하는 기능 추가
+ * - 모바일 뷰어 모드 유지: 모바일에서는 안전하게 보기만 가능, 수정/삭제는 PC에서만 작동
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -33,14 +34,16 @@ import {
   AlertTriangle,
   RefreshCw,
   MapPin,
-  Settings,
   CalendarDays,
   Info,
   Edit2,
   ArchiveRestore,
   Trash,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  List
 } from 'lucide-react';
 
 // 강제 스타일 주입 로직 (Vercel 호환성)
@@ -113,8 +116,13 @@ function App() {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [showTrash, setShowTrash] = useState(false); // 휴지통 보기 상태
-  const [showPast, setShowPast] = useState(false); // 이전 일정 보기 상태
+  const [showTrash, setShowTrash] = useState(false); 
+  const [showPast, setShowPast] = useState(false); 
+
+  // 달력 모드 상태
+  const [isCalendarView, setIsCalendarView] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString(new Date()));
 
   // 로컬 기준 오늘 날짜 문자열
   const todayStr = getLocalDateString(new Date());
@@ -176,7 +184,7 @@ function App() {
         title: newTitle, content: newContent, location: newLocation, time: newTime, 
         startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate,
         author: user.uid,
-        isDeleted: false // 휴지통 상태 (기본값: false)
+        isDeleted: false 
       };
 
       if (editingId) {
@@ -194,7 +202,6 @@ function App() {
     }
   };
 
-  // 휴지통으로 이동 (Soft Delete)
   const handleSoftDelete = async (id) => {
     if (!db) return;
     if (confirm("이 일정을 휴지통으로 이동하시겠습니까?")) {
@@ -205,7 +212,6 @@ function App() {
     }
   };
 
-  // 휴지통에서 복구
   const handleRestore = async (id) => {
     if (!db) return;
     try {
@@ -213,7 +219,6 @@ function App() {
     } catch (e) { console.error("Restore Fail:", e); }
   };
 
-  // 영구 삭제 (Hard Delete)
   const handlePermanentDelete = async (id) => {
     if (!db) return;
     if (confirm("이 일정을 완전히 삭제하시겠습니까? 복구할 수 없습니다.")) {
@@ -235,55 +240,116 @@ function App() {
       setIsRange(false); setNewEndDate('');
     }
     setEditingId(item.id);
-    setShowTrash(false); // 수정 시 활성 목록으로 전환
+    setShowTrash(false); 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 활성 일정 필터링 (과거 제외, 오름차순 정렬)
   const activeSchedules = useMemo(() => {
     return schedules
       .filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr)
       .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
   }, [schedules, todayStr]);
 
-  // 과거 일정 필터링 (최신 과거일수록 위로 오도록 내림차순 정렬)
   const pastSchedules = useMemo(() => {
     return schedules
       .filter(s => !s.isDeleted && (s.endDate || s.startDate) < todayStr)
       .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
   }, [schedules, todayStr]);
 
-  // 휴지통 일정 필터링
   const trashedSchedules = useMemo(() => {
     return schedules
       .filter(s => s.isDeleted)
       .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
   }, [schedules]);
 
-  const displaySchedules = showTrash ? trashedSchedules : activeSchedules;
+  // 달력 모드에서 선택된 날짜의 일정 필터링
+  const calendarFilteredSchedules = useMemo(() => {
+    return schedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate);
+  }, [schedules, selectedDate]);
 
-  // 오타 방지를 위한 렌더링 헬퍼 함수
+  let displaySchedules = showTrash ? trashedSchedules : activeSchedules;
+  if (isCalendarView && !showTrash) {
+    displaySchedules = calendarFilteredSchedules;
+  }
+
+  // 달력 렌더링 로직
+  const renderCalendar = () => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
+    }
+
+    return (
+      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[2rem] shadow-sm mb-4 border border-slate-100 dark:border-slate-700">
+         <div className="flex justify-between items-center mb-4">
+           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={28} className="dark:text-white"/></button>
+           <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
+           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
+         </div>
+         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2 text-center">
+           {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
+             <div key={i} className={`text-lg font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-400 dark:text-slate-400'}`}>{wd}</div>
+           ))}
+         </div>
+         <div className="grid grid-cols-7 gap-1 md:gap-2">
+           {days.map((dateStr, idx) => {
+             if (!dateStr) return <div key={`empty-${idx}`} />;
+             const dayNum = parseInt(dateStr.split('-')[2]);
+             const hasSchedule = schedules.some(s => !s.isDeleted && s.startDate <= dateStr && (s.endDate || s.startDate) >= dateStr);
+             const isSelected = selectedDate === dateStr;
+             const isToday = todayStr === dateStr;
+
+             return (
+               <button
+                 key={dateStr}
+                 onClick={() => setSelectedDate(dateStr)}
+                 className={`flex flex-col items-center justify-center rounded-[1.2rem] h-[4.5rem] md:h-20 transition-all ${
+                   isSelected ? 'bg-[#8DC63F] text-white shadow-md scale-105' 
+                   : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
+                 }`}
+               >
+                 <span className={`text-xl md:text-2xl font-black ${isSelected ? 'text-white' : isToday ? 'text-[#8DC63F]' : 'text-slate-700 dark:text-slate-200'}`}>
+                   {dayNum}
+                 </span>
+                 {hasSchedule && (
+                   <div className={`w-2.5 h-2.5 rounded-full mt-1 ${isSelected ? 'bg-white' : 'bg-[#8DC63F]'}`} />
+                 )}
+               </button>
+             );
+           })}
+         </div>
+      </div>
+    );
+  };
+
+  // 공통 입력 폼 컴포넌트
   const renderScheduleForm = (onCancel) => (
-    <form onSubmit={handleAddOrEditSchedule} className="space-y-6">
-      <div className="space-y-3">
-        <label className="block text-slate-400 font-black text-sm uppercase tracking-[0.2em] ml-2">무엇을 하시나요?</label>
+    <form onSubmit={handleAddOrEditSchedule} className="space-y-4 md:space-y-6">
+      <div className="space-y-2">
+        <label className="block text-slate-400 dark:text-slate-400 font-black text-sm uppercase ml-2">일정 제목</label>
         <input 
           type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} 
-          placeholder="예: 서울아산병원 정기검진" 
-          className="w-full text-xl md:text-2xl p-5 md:p-6 bg-slate-50 rounded-[1.5rem] md:rounded-[2rem] border-none font-black focus:ring-4 focus:ring-[#8DC63F]/20 transition-all shadow-inner" 
+          placeholder="예: 병원 방문" 
+          className="w-full text-xl md:text-2xl p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] md:rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#8DC63F]/20 transition-all shadow-inner" 
           autoFocus 
           required
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">장소</label>
-          <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="어디서?" className="w-full p-4 md:p-5 bg-slate-50 rounded-[1.2rem] border-none font-bold text-lg shadow-inner" />
+          <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="어디서?" className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
         </div>
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">시간</label>
-          <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-4 md:p-5 bg-slate-50 rounded-[1.2rem] border-none font-bold text-lg shadow-inner" />
+          <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
         </div>
       </div>
 
@@ -292,36 +358,36 @@ function App() {
          <textarea 
           value={newContent} onChange={(e) => setNewContent(e.target.value)} 
           placeholder="상세 내용을 적어주세요" rows={3}
-          className="w-full p-5 md:p-6 bg-slate-50 rounded-[1.5rem] border-none font-bold text-lg shadow-inner resize-none" 
+          className="w-full p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] border-none font-bold text-lg shadow-inner resize-none" 
         />
       </div>
 
-      <div className="flex items-center justify-between p-5 bg-[#F7F9FB] rounded-[1.5rem] border border-slate-100">
-        <span className="font-black text-slate-700 text-base md:text-lg">여러 날 일정</span>
-        <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-all ${isRange ? 'bg-[#8DC63F]' : 'bg-slate-300'}`}>
+      <div className="flex items-center justify-between p-4 bg-[#F7F9FB] dark:bg-slate-700 rounded-[1.2rem]">
+        <span className="font-black text-slate-700 dark:text-slate-200 text-base md:text-lg">여러 날 일정</span>
+        <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-all ${isRange ? 'bg-[#8DC63F]' : 'bg-slate-300 dark:bg-slate-500'}`}>
           <div className={`absolute top-1 bg-white w-6 h-6 rounded-full transition-transform ${isRange ? 'translate-x-7' : 'translate-x-1'} shadow-md`} />
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">시작 날짜</label>
-          <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-4 md:p-5 bg-slate-50 rounded-[1.2rem] border-none font-bold text-lg shadow-inner" />
+          <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
         </div>
         {isRange && (
           <div className="space-y-2">
             <label className="text-xs font-black text-slate-400 ml-2">종료 날짜</label>
-            <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-4 md:p-5 bg-slate-50 rounded-[1.2rem] border-none font-bold text-lg shadow-inner" />
+            <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
           </div>
         )}
       </div>
       
-      <div className="flex gap-3 pt-4">
+      <div className="flex gap-2 pt-2">
         {onCancel && (
           <button 
             type="button" 
             onClick={() => { resetForm(); onCancel(); }} 
-            className="flex-1 py-5 md:py-6 bg-slate-100 text-slate-500 rounded-[2rem] font-black text-lg md:text-xl active:scale-95 transition-all hover:bg-slate-200"
+            className="flex-1 py-4 md:py-5 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-300 rounded-[1.5rem] font-black text-lg active:scale-95 transition-all"
           >
             취소
           </button>
@@ -329,7 +395,7 @@ function App() {
         <button 
           type="submit" 
           disabled={isSaving}
-          className="flex-[2] py-5 md:py-6 bg-[#8DC63F] text-white rounded-[2rem] font-black text-lg md:text-xl shadow-xl shadow-[#8DC63F]/30 active:scale-95 transition-all disabled:opacity-50 hover:bg-[#7AB12E]"
+          className="flex-[2] py-4 md:py-5 bg-[#8DC63F] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#8DC63F]/30 active:scale-95 transition-all disabled:opacity-50"
         >
           {isSaving ? '저장 중...' : (editingId ? '일정 수정완료' : '새 일정 등록')}
         </button>
@@ -337,173 +403,139 @@ function App() {
     </form>
   );
 
-  // 설정 오류 화면
   if (!app) return (
-    <div className="min-h-screen bg-[#F7F9FB] flex items-center justify-center p-6 text-center">
-      <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full border-t-[16px] border-red-500">
-        <AlertTriangle className="text-red-500 mx-auto mb-6" size={64} />
-        <h1 className="text-3xl font-black text-slate-800 mb-6 tracking-tighter">설정 확인 필요</h1>
-        <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 text-left mb-8">
-          <p className="font-black text-blue-900 mb-3 flex items-center gap-2 text-xl"><Info size={24} /> 필수 확인 사항</p>
-          <ul className="text-blue-800 space-y-2 font-bold leading-relaxed text-sm">
-            <li>1. Vercel 환경 변수 이름: <code className="bg-white px-1">VITE_FIREBASE_CONFIG</code></li>
-            <li>2. 데이터 형식: 중괄호 <code className="bg-white px-1">{"{ }"}</code>만 포함 (객체만)</li>
-            <li>3. 설정 후 반드시 <strong>Redeploy</strong> 진행</li>
-          </ul>
-        </div>
+    <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center">
+      <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-xl max-w-md w-full border-t-[12px] border-red-500">
+        <AlertTriangle className="text-red-500 mx-auto mb-4" size={56} />
+        <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-4">설정 확인 필요</h1>
+        <p className="text-slate-500 dark:text-slate-300 font-bold mb-2">Vercel 환경 변수 이름: <code className="bg-slate-100 dark:bg-slate-700 px-1">VITE_FIREBASE_CONFIG</code></p>
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-[#F4F7F2] text-slate-900 font-sans pb-20 overflow-x-hidden">
-      {/* 상단 프로필 및 앱 바 (초대형 날짜 표시) */}
-      <header className="bg-white shadow-sm sticky top-0 z-40">
-        <div className="px-6 py-6 flex flex-col justify-center max-w-6xl mx-auto gap-2">
-          <h1 className="text-2xl font-black flex items-center gap-2 text-[#4A6D00] tracking-tighter mb-1">
-            <div className="w-10 h-10 bg-[#F0F7E6] rounded-full flex items-center justify-center border border-[#8DC63F]/20 shadow-sm mr-1">
-               <CalendarDays className="text-[#8DC63F]" size={20} />
-            </div>
-            나의 일정 <span className="text-slate-400 font-bold text-xs bg-slate-50 border px-2 py-0.5 rounded-md ml-1">v1.10.0</span>
-          </h1>
-          {/* 어르신들이 보기 편하게 대폭 키운 날짜 표시 */}
-          <p className="text-slate-900 font-black text-[2.2rem] md:text-5xl tracking-tight leading-snug">
-            {fullDateDisplay}
-          </p>
+    <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
+      {/* 상단 헤더: 공간 최적화, 달력 토글 및 날짜 확대 */}
+      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-4 px-4 md:px-6 transition-colors duration-300">
+        <div className="flex justify-between items-center max-w-6xl mx-auto">
+          <div>
+            <p className="text-slate-900 dark:text-white font-black text-[1.8rem] md:text-4xl tracking-tighter leading-none">
+              {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* 달력 보기 / 목록 보기 토글 버튼 */}
+            <button 
+              onClick={() => {
+                setIsCalendarView(!isCalendarView);
+                setSelectedDate(todayStr); // 모드 변경 시 오늘 날짜로 초기화
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#F0F7E6] dark:bg-slate-700 text-[#5D8C00] dark:text-[#8DC63F] rounded-full font-black text-sm md:text-base active:scale-95 transition-all shadow-sm border border-[#8DC63F]/20 dark:border-transparent"
+            >
+              {isCalendarView ? (
+                <><List size={22} strokeWidth={2.5} /> <span className="hidden md:inline">목록 보기</span></>
+              ) : (
+                <><CalendarDays size={22} strokeWidth={2.5} /> <span className="hidden md:inline">달력 보기</span></>
+              )}
+            </button>
+            
+            {/* PC 전용 휴지통 토글 */}
+            <button 
+              onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
+              className={`hidden lg:flex px-4 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
+                showTrash ? 'bg-slate-800 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+              }`}
+            >
+              {showTrash ? '목록으로' : <><Trash2 size={20}/> 휴지통</>}
+            </button>
+          </div>
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-8 flex flex-col lg:flex-row gap-10">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-6 flex flex-col lg:flex-row gap-6">
         
-        {/* PC 전용: 좌측 고정 일정 입력 및 수정 (모바일에서는 완전히 숨김) */}
-        <aside className="hidden lg:block w-[400px] flex-shrink-0">
-          <div className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.05)] sticky top-[200px] border border-slate-50">
-            <div className="flex justify-between items-center mb-8">
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                 {editingId ? <Edit2 className="text-amber-500" size={28} strokeWidth={3} /> : <Plus className="text-[#8DC63F]" size={28} strokeWidth={3} />} 
+        {/* PC 전용: 좌측 고정 일정 입력 (공간 최적화) */}
+        <aside className="hidden lg:block w-[380px] flex-shrink-0">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[100px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                 {editingId ? <Edit2 className="text-amber-500" size={24} strokeWidth={3} /> : <Plus className="text-[#8DC63F]" size={24} strokeWidth={3} />} 
                  {editingId ? '일정 수정' : '새 일정 등록'}
               </h2>
-              {editingId && (
-                <button onClick={resetForm} className="text-sm font-bold text-slate-400 hover:text-slate-600">등록으로 돌아가기</button>
-              )}
             </div>
-            {/* 오타 방지를 위해 함수를 직접 호출 */}
             {renderScheduleForm(editingId ? resetForm : null)}
           </div>
         </aside>
 
-        {/* 우측/모바일 메인: 일정 목록 영역 */}
+        {/* 메인 리스트 및 달력 영역 */}
         <main className="flex-1 w-full">
-          {/* 하단 리스트 섹션: 전체 예정 일정 및 휴지통 토글 */}
-          <div className="flex justify-between items-center mb-8 px-2">
-             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-               {showTrash ? (
-                 <><Trash2 className="text-red-400" /> 휴지통 목록</>
-               ) : (
-                 '예정된 전체 일정'
-               )}
-             </h3>
-             
-             {/* PC 전용: 휴지통 토글 버튼 */}
-             <button 
-               onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); }}
-               className={`hidden lg:flex px-5 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
-                 showTrash ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-               }`}
-             >
-               {showTrash ? '목록으로 돌아가기' : '휴지통 열기'}
-             </button>
-          </div>
+          {/* 달력 뷰 */}
+          {isCalendarView && !showTrash && renderCalendar()}
 
           {loading ? (
-            <div className="py-24 text-center">
-              <RefreshCw className="animate-spin mx-auto text-[#8DC63F] opacity-50" size={56} />
+            <div className="py-20 text-center">
+              <RefreshCw className="animate-spin mx-auto text-[#8DC63F] opacity-50" size={48} />
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 gap-4">
               {displaySchedules.map((item) => (
-                <div key={item.id} className={`bg-white rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.03)] border flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all hover:shadow-lg gap-4 ${showTrash ? 'border-red-100 opacity-80' : 'border-slate-100'}`}>
+                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.8rem] md:rounded-[2rem] p-5 md:p-6 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-4 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
                   <div className="flex-1 w-full">
-                     {/* 초록색 알약 형태의 날짜/요일 명확한 표시 (휴지통일 때는 회색조) */}
-                     <div className="mb-4">
-                       <span className={`inline-block text-white font-black text-lg md:text-xl tracking-tight px-4 py-2 rounded-[1rem] shadow-sm ${showTrash ? 'bg-slate-400' : 'bg-[#8DC63F]'}`}>
+                     {/* 초록색 알약 형태의 날짜/요일 (폰트 확대) */}
+                     <div className="mb-3">
+                       <span className={`inline-block text-white font-black text-[1.3rem] md:text-2xl tracking-tight px-4 py-2 rounded-[1rem] shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#8DC63F] dark:bg-[#7AB12E]'}`}>
                          {formatDateWithDay(item.startDate)}
                          {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
                      </div>
 
-                     <h4 className={`text-2xl md:text-3xl font-black leading-tight mb-3 tracking-tight break-keep ${showTrash ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                     <h4 className={`text-[1.6rem] md:text-3xl font-black leading-tight mb-2 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
                        {item.title}
                      </h4>
                      
                      {/* 폰트 대폭 확대된 시간 및 장소 */}
-                     <div className="flex flex-wrap gap-4 my-4">
-                       {item.time && <p className="text-slate-700 font-black text-[1.4rem] md:text-2xl flex items-center gap-2"><Clock size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.time}</p>}
-                       {item.location && <p className="text-slate-700 font-black text-[1.4rem] md:text-2xl flex items-center gap-2"><MapPin size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.location}</p>}
+                     <div className="flex flex-wrap gap-4 my-3">
+                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.4rem] md:text-2xl flex items-center gap-2"><Clock size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.time}</p>}
+                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.4rem] md:text-2xl flex items-center gap-2"><MapPin size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.location}</p>}
                      </div>
 
+                     {/* 메모 텍스트 사이즈 대폭 확대 */}
                      {item.content && (
-                       <div className={`mt-5 p-5 rounded-2xl border ${showTrash ? 'bg-slate-50 border-slate-100' : 'bg-[#F4F7F2]/50 border-slate-50'}`}>
-                         <p className="text-slate-600 font-bold text-lg md:text-xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                       <div className={`mt-4 p-4 md:p-5 rounded-2xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-slate-50 dark:border-slate-600'}`}>
+                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[1.2rem] md:text-2xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
                        </div>
                      )}
                   </div>
 
-                  {/* PC에서만 보이는 작업 버튼 (모바일에서는 뷰어 모드이므로 숨김 처리) */}
-                  <div className="hidden lg:flex flex-col gap-3 self-start">
+                  {/* PC에서만 보이는 작업 버튼 (모바일 뷰어 모드) */}
+                  <div className="hidden lg:flex flex-col gap-2 self-start">
                     {!showTrash ? (
                       <>
-                        <button 
-                          onClick={() => handleEditClick(item)}
-                          className="p-4 bg-amber-50 text-amber-500 rounded-2xl hover:bg-amber-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                          title="수정"
-                        >
-                          <Edit2 size={24} />
-                          <span className="text-xs font-black">수정</span>
-                        </button>
-                        <button 
-                          onClick={() => handleSoftDelete(item.id)}
-                          className="p-4 bg-red-50 text-red-400 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                          title="휴지통으로"
-                        >
-                          <Trash2 size={24} />
-                          <span className="text-xs font-black">삭제</span>
-                        </button>
+                        <button onClick={() => handleEditClick(item)} className="p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={24} /></button>
+                        <button onClick={() => handleSoftDelete(item.id)} className="p-3 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={24} /></button>
                       </>
                     ) : (
                       <>
-                        <button 
-                          onClick={() => handleRestore(item.id)}
-                          className="p-4 bg-emerald-50 text-emerald-500 rounded-2xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                          title="복구하기"
-                        >
-                          <ArchiveRestore size={24} />
-                          <span className="text-xs font-black">복구</span>
-                        </button>
-                        <button 
-                          onClick={() => handlePermanentDelete(item.id)}
-                          className="p-4 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-600 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                          title="영구 삭제"
-                        >
-                          <Trash size={24} />
-                          <span className="text-xs font-black">영구삭제</span>
-                        </button>
+                        <button onClick={() => handleRestore(item.id)} className="p-3 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={24} /></button>
+                        <button onClick={() => handlePermanentDelete(item.id)} className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={24} /></button>
                       </>
                     )}
                   </div>
                 </div>
               ))}
               {displaySchedules.length === 0 && (
-                <div className="py-20 text-center">
+                <div className="py-16 text-center">
                   {showTrash ? (
                     <>
-                      <Trash size={80} className="mx-auto mb-6 text-slate-200" />
-                      <p className="text-slate-300 font-black text-2xl">휴지통이 비어있습니다</p>
+                      <Trash size={60} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+                      <p className="text-slate-400 dark:text-slate-500 font-black text-xl">휴지통이 비어있습니다</p>
                     </>
                   ) : (
                     <>
-                      <CalendarDays size={80} className="mx-auto mb-6 text-slate-200" />
-                      <p className="text-slate-300 font-black text-2xl">등록된 일정이 없습니다</p>
+                      <CalendarDays size={60} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
+                      <p className="text-slate-400 dark:text-slate-500 font-black text-xl">
+                        {isCalendarView ? '선택한 날짜에 일정이 없습니다' : '예정된 일정이 없습니다'}
+                      </p>
                     </>
                   )}
                 </div>
@@ -511,54 +543,45 @@ function App() {
             </div>
           )}
 
-          {/* 지난 일정 보기 아코디언 (휴지통 모드가 아닐 때만 표시) */}
-          {!loading && !showTrash && (
-            <div className="mt-12 mb-8 flex flex-col items-center">
+          {/* 지난 일정 보기 (목록 모드에서만 표시) */}
+          {!loading && !showTrash && !isCalendarView && (
+            <div className="mt-8 mb-4 flex flex-col items-center">
               <button 
                 onClick={() => setShowPast(!showPast)}
-                className="px-8 py-4 bg-slate-200 text-slate-600 rounded-full font-black text-lg shadow-sm hover:bg-slate-300 active:scale-95 transition-all flex items-center gap-2"
+                className="px-6 py-3 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full font-black text-base shadow-sm active:scale-95 transition-all flex items-center gap-2"
               >
                 {showPast ? '지난 일정 숨기기' : '지난 일정 보기'}
-                {showPast ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
+                {showPast ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
               </button>
 
               {showPast && (
-                <div className="w-full mt-8 grid grid-cols-1 gap-6">
+                <div className="w-full mt-6 grid grid-cols-1 gap-4">
                   {pastSchedules.length > 0 ? pastSchedules.map((item) => (
-                    <div key={item.id} className="bg-slate-50 rounded-[2rem] p-6 shadow-sm border border-slate-200 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-4 opacity-70 hover:opacity-100 transition-opacity">
+                    <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.8rem] p-5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-4 opacity-80 hover:opacity-100 transition-opacity">
                       <div className="flex-1 w-full">
-                         <div className="mb-3">
-                           <span className="inline-block text-white bg-slate-400 font-black text-lg tracking-tight px-4 py-1.5 rounded-[1rem] shadow-sm">
+                         <div className="mb-2">
+                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-lg md:text-xl tracking-tight px-3 py-1.5 rounded-xl shadow-sm">
                              {formatDateWithDay(item.startDate)}
                              {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                            </span>
                          </div>
-                         <h4 className="text-2xl font-black text-slate-700 leading-tight mb-3 tracking-tight break-keep">{item.title}</h4>
-                         <div className="flex flex-wrap gap-4 my-3">
-                           {item.time && <p className="text-slate-500 font-bold text-xl flex items-center gap-2"><Clock size={24} strokeWidth={2.5} className="text-slate-400"/> {item.time}</p>}
-                           {item.location && <p className="text-slate-500 font-bold text-xl flex items-center gap-2"><MapPin size={24} strokeWidth={2.5} className="text-slate-400"/> {item.location}</p>}
+                         <h4 className="text-[1.5rem] md:text-2xl font-black text-slate-700 dark:text-slate-300 leading-tight mb-2 tracking-tight break-keep">{item.title}</h4>
+                         <div className="flex flex-wrap gap-4 my-2">
+                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-lg md:text-xl flex items-center gap-2"><Clock size={24} className="text-slate-400 dark:text-slate-500"/> {item.time}</p>}
+                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-lg md:text-xl flex items-center gap-2"><MapPin size={24} className="text-slate-400 dark:text-slate-500"/> {item.location}</p>}
                          </div>
                          {item.content && (
-                           <div className="mt-4 bg-slate-100 p-4 rounded-xl border border-slate-200">
-                             <p className="text-slate-500 font-bold text-lg whitespace-pre-wrap">{item.content}</p>
+                           <div className="mt-3 bg-slate-100 dark:bg-slate-700 p-4 rounded-xl">
+                             <p className="text-slate-500 dark:text-slate-300 font-bold text-lg whitespace-pre-wrap">{item.content}</p>
                            </div>
                          )}
                       </div>
-                      
-                      {/* PC에서만 보이는 작업 버튼 (과거 일정도 삭제 가능) */}
-                      <div className="hidden lg:flex flex-col gap-3 self-start">
-                        <button 
-                          onClick={() => handleSoftDelete(item.id)}
-                          className="p-3 bg-red-50 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                          title="휴지통으로"
-                        >
-                          <Trash2 size={20} />
-                          <span className="text-[10px] font-black">삭제</span>
-                        </button>
+                      <div className="hidden lg:flex flex-col gap-2 self-start">
+                        <button onClick={() => handleSoftDelete(item.id)} className="p-3 bg-red-50 dark:bg-red-900/30 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={20} /></button>
                       </div>
                     </div>
                   )) : (
-                    <div className="py-12 text-center text-slate-400 font-bold text-xl bg-slate-50 rounded-3xl border border-slate-200">
+                    <div className="py-8 text-center text-slate-400 dark:text-slate-500 font-bold text-lg bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
                       지난 일정이 없습니다.
                     </div>
                   )}
@@ -572,7 +595,6 @@ function App() {
   );
 }
 
-// 렌더링 초기화
 const initRender = () => {
   const container = document.getElementById('root');
   if (container) {
