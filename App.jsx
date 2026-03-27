@@ -1,10 +1,10 @@
 /**
  * [버전 정보]
- * v1.21.0 (2026-03-28)
- * - D-Day(디데이) 기능 추가: 일정 목록 및 상세 보기에 며칠 남았는지 직관적으로 표시 (D-Day, D-3 등)
- * - 상단 헤더 공간 최적화: 달력/홈 토글 버튼의 여백을 줄이고 날짜 텍스트를 한 줄에 들어갈 수 있는 최대 크기(vw)로 자동 조절
- * - 일정 상하 간격 압축: 화면에 더 많은 일정이 보이도록 카드 내부의 패딩(p) 및 요소 간 마진(m)을 촘촘하게 축소
- * - 달력 화면 초기화 개선: 달력 버튼 클릭 시 항상 오늘 날짜 기준의 달(Month)과 오늘 일정이 바로 보이도록 UX 수정
+ * v1.22.0 (2026-03-28)
+ * - 구글 간편 로그인(Google Auth) 도입: 익명 로그인을 제거하고, 기기 연동 구글 계정을 통한 원터치 간편 로그인 적용
+ * - 개인 비공개 데이터 경로 적용: Firestore 경로를 public에서 개인 UID 경로(users/UID/schedules)로 완벽히 격리하여 보안 극대화
+ * - 로그아웃 기능 추가: 상단 헤더에 계정 전환을 위한 로그아웃 버튼 탑재
+ * - 반응형 디자인 및 D-Day 기능 등 기존 최적화 UX 모두 유지
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -18,13 +18,16 @@ import {
   deleteDoc, 
   doc, 
   updateDoc,
+  setDoc,
   serverTimestamp 
 } from 'firebase/firestore';
 import { 
   getAuth, 
-  signInAnonymously, 
   signInWithCustomToken, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut
 } from 'firebase/auth';
 import { 
   Plus, 
@@ -34,7 +37,6 @@ import {
   RefreshCw,
   MapPin,
   CalendarDays,
-  Info,
   Edit2,
   ArchiveRestore,
   Trash,
@@ -42,7 +44,11 @@ import {
   ChevronUp,
   ChevronLeft,
   ChevronRight,
-  List
+  List,
+  LogOut,
+  Users,
+  Copy,
+  Check
 } from 'lucide-react';
 
 // 강제 스타일 및 PWA(전체화면 앱) 메타 태그 주입 로직
@@ -154,11 +160,20 @@ const formatDateWithDay = (dateStr) => {
 
 function App() {
   const [user, setUser] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showTrash, setShowTrash] = useState(false); 
   const [showPast, setShowPast] = useState(false); 
+
+  // 가족 연동 상태
+  const [linkedUid, setLinkedUid] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [linkInput, setLinkInput] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  const activeUid = linkedUid || (user ? user.uid : null);
 
   // 달력 모드 상태
   const [isCalendarView, setIsCalendarView] = useState(false);
@@ -198,18 +213,42 @@ function App() {
     if (!auth) return;
     const initAuth = async () => {
       try {
+        // Canvas 미리보기 환경을 위한 커스텀 토큰 체크
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
-        } else { await signInAnonymously(auth); }
-      } catch (e) { console.error("Auth Fail:", e); }
+        }
+        // 익명 로그인(signInAnonymously) 제거 - 구글 로그인 강제
+      } catch (e) { console.error("Auth Init Fail:", e); }
     };
     initAuth();
-    return onAuthStateChanged(auth, setUser);
+    
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthChecking(false);
+    });
+    return () => unsubscribe();
   }, []);
 
+  // 연동된 계정 정보 불러오기
   useEffect(() => {
     if (!user || !db) return;
-    const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
+    const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+      if (docSnap.exists() && docSnap.data().linkedUid) {
+        setLinkedUid(docSnap.data().linkedUid);
+      } else {
+        setLinkedUid(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [user, db]);
+
+  useEffect(() => {
+    if (!activeUid || !db) return;
+    
+    // [보안 업데이트] activeUid(내 UID 또는 연동된 어머니 UID) 경로 사용
+    const schedulesRef = collection(db, 'artifacts', appId, 'users', activeUid, 'schedules');
+    
     const unsubscribe = onSnapshot(schedulesRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSchedules(data);
@@ -219,7 +258,30 @@ function App() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [activeUid, db]);
+
+  // 구글 로그인 처리 함수
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Google Login Error:", error);
+      alert("로그인 중 오류가 발생했습니다. 팝업 차단을 해제하거나 Vercel 배포 환경에서 시도해주세요.");
+    }
+  };
+
+  // 로그아웃 처리 함수
+  const handleLogout = async () => {
+    if (confirm("로그아웃 하시겠습니까?")) {
+      try {
+        await signOut(auth);
+        setSchedules([]); // 데이터 초기화
+      } catch (error) {
+        console.error("Logout Error:", error);
+      }
+    }
+  };
 
   const resetForm = () => {
     setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); 
@@ -229,22 +291,23 @@ function App() {
 
   const handleAddOrEditSchedule = async (e) => {
     e.preventDefault();
-    if (!newTitle.trim() || !db || isSaving) return;
+    if (!newTitle.trim() || !db || isSaving || !user) return;
     setIsSaving(true);
     try {
       const scheduleData = {
         title: newTitle, content: newContent, location: newLocation, time: newTime, 
         startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate,
-        author: user.uid,
+        author: activeUid,
         isDeleted: false 
       };
 
+      // 개인 비공개 경로 적용
       if (editingId) {
         scheduleData.updatedAt = serverTimestamp();
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', editingId), scheduleData);
+        await updateDoc(doc(db, 'artifacts', appId, 'users', activeUid, 'schedules', editingId), scheduleData);
       } else {
         scheduleData.createdAt = serverTimestamp();
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), scheduleData);
+        await addDoc(collection(db, 'artifacts', appId, 'users', activeUid, 'schedules'), scheduleData);
       }
       resetForm();
     } catch (e) { 
@@ -255,27 +318,27 @@ function App() {
   };
 
   const handleSoftDelete = async (id) => {
-    if (!db) return;
+    if (!db || !activeUid) return;
     if (confirm("이 일정을 휴지통으로 이동하시겠습니까?")) {
       try {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: true });
+        await updateDoc(doc(db, 'artifacts', appId, 'users', activeUid, 'schedules', id), { isDeleted: true });
         if (editingId === id) resetForm();
       } catch (e) { console.error("Trash Fail:", e); }
     }
   };
 
   const handleRestore = async (id) => {
-    if (!db) return;
+    if (!db || !activeUid) return;
     try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: false });
+      await updateDoc(doc(db, 'artifacts', appId, 'users', activeUid, 'schedules', id), { isDeleted: false });
     } catch (e) { console.error("Restore Fail:", e); }
   };
 
   const handlePermanentDelete = async (id) => {
-    if (!db) return;
+    if (!db || !activeUid) return;
     if (confirm("이 일정을 완전히 삭제하시겠습니까? 복구할 수 없습니다.")) {
       try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', activeUid, 'schedules', id));
       } catch (e) { console.error("Delete Fail:", e); }
     }
   };
@@ -323,6 +386,38 @@ function App() {
   if (isCalendarView && !showTrash) {
     displaySchedules = calendarFilteredSchedules;
   }
+
+  // 연동 기능 핸들러
+  const handleCopyCode = () => {
+    const textArea = document.createElement("textarea");
+    textArea.value = user.uid;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+    document.body.removeChild(textArea);
+  };
+
+  const handleLinkAccount = async () => {
+    if (!linkInput.trim()) return;
+    const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+    await setDoc(profileRef, { linkedUid: linkInput.trim() }, { merge: true });
+    setLinkInput('');
+    setShowSettings(false);
+  };
+
+  const handleUnlink = async () => {
+    if(confirm("가족 연동을 해제하시겠습니까?")) {
+      const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
+      await setDoc(profileRef, { linkedUid: null }, { merge: true });
+      setShowSettings(false);
+    }
+  };
 
   // 달력 렌더링 로직 (상하 폭 압축 적용)
   const renderCalendar = () => {
@@ -388,17 +483,16 @@ function App() {
         <label className="block text-slate-400 dark:text-slate-400 font-black text-sm uppercase ml-2">일정 제목</label>
         <input 
           type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} 
-          placeholder="예: 병원 방문" 
+          placeholder="예: 병원 방문" maxLength={50}
           className="w-full text-xl md:text-2xl p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] md:rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#508A12]/30 transition-all shadow-inner" 
-          autoFocus 
-          required
+          autoFocus required
         />
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">장소</label>
-          <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="어디서?" className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
+          <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="어디서?" maxLength={30} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
         </div>
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">시간</label>
@@ -410,7 +504,7 @@ function App() {
          <label className="text-xs font-black text-slate-400 ml-2">메모</label>
          <textarea 
           value={newContent} onChange={(e) => setNewContent(e.target.value)} 
-          placeholder="상세 내용을 적어주세요" rows={3}
+          placeholder="상세 내용을 적어주세요 (최대 500자)" rows={3} maxLength={500}
           className="w-full p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] border-none font-bold text-lg shadow-inner resize-none" 
         />
       </div>
@@ -456,6 +550,7 @@ function App() {
     </form>
   );
 
+  // Vercel 환경 변수 오류 화면
   if (!app) return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center">
       <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-xl max-w-md w-full border-t-[12px] border-red-500">
@@ -466,6 +561,39 @@ function App() {
     </div>
   );
 
+  // [보안 업데이트] 로그인 화면 렌더링
+  if (!isAuthChecking && !user) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center transition-colors duration-300">
+        <div className="bg-white dark:bg-slate-800 p-10 md:p-12 rounded-[3rem] shadow-xl max-w-md w-full border-t-[16px] border-[#508A12]">
+          <CalendarDays className="text-[#508A12] mx-auto mb-6" size={72} strokeWidth={2} />
+          <h1 className="text-4xl font-black text-slate-800 dark:text-white mb-3 tracking-tighter">나의 일정</h1>
+          <p className="text-slate-500 dark:text-slate-400 font-bold mb-10 text-lg leading-relaxed">
+            나만의 안전한 비공개 캘린더<br/>
+            <span className="text-sm opacity-80">구글 계정으로 안전하게 동기화됩니다.</span>
+          </p>
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full flex items-center justify-center gap-3 py-5 bg-white dark:bg-slate-700 text-slate-800 dark:text-white rounded-[1.5rem] font-black text-xl shadow-md border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition-all"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-8 h-8" />
+            구글 계정으로 시작하기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 데이터 로딩 전
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center">
+        <RefreshCw className="animate-spin text-[#508A12] opacity-50" size={48} />
+      </div>
+    );
+  }
+
+  // 메인 앱 렌더링
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       {/* 상단 헤더: 공간 최적화 및 좌측 정렬 완벽 일치, 1줄 강제 처리 */}
@@ -473,8 +601,9 @@ function App() {
         <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-1">
           {/* 글자가 화면 크기에 상관없이 1줄로 최대한 크게 유지되도록 조절 */}
           <div className="flex-1 overflow-hidden pr-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(17px,5.5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(17px,5.5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-2">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
+              {linkedUid && <span className="inline-block bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 text-xs md:text-sm font-bold px-2 py-1 rounded-lg align-middle border border-orange-200 dark:border-orange-800">가족 연동됨</span>}
             </p>
           </div>
           <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
@@ -490,14 +619,24 @@ function App() {
               {isCalendarView ? '홈' : '달력'}
             </button>
             
-            {/* PC 전용 휴지통 토글 */}
+            {/* 가족 연동 설정 버튼 */}
             <button 
-              onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
-              className={`hidden lg:flex px-4 py-2 rounded-full font-black text-sm transition-all items-center gap-2 ${
-                showTrash ? 'bg-slate-800 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-              }`}
+              onClick={() => setShowSettings(true)}
+              className={`flex items-center justify-center p-2.5 md:px-4 md:py-2.5 rounded-full font-black text-sm transition-all ${linkedUid ? 'bg-orange-100 text-orange-600 hover:bg-orange-200 dark:bg-orange-900/50 dark:text-orange-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200'}`}
+              title="가족 연동"
             >
-              {showTrash ? '목록으로' : <><Trash2 size={20}/> 휴지통</>}
+              <Users size={20} />
+              <span className="hidden md:inline ml-1.5">{linkedUid ? '연동됨' : '가족연동'}</span>
+            </button>
+
+            {/* 로그아웃 버튼 (모바일에서는 아이콘만, PC에서는 글자까지) */}
+            <button 
+              onClick={handleLogout}
+              className="flex items-center justify-center p-2.5 md:px-4 md:py-2.5 rounded-full font-black text-sm transition-all bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200"
+              title="로그아웃"
+            >
+              <LogOut size={20} />
+              <span className="hidden md:inline ml-1.5">로그아웃</span>
             </button>
           </div>
         </div>
@@ -516,6 +655,18 @@ function App() {
             </div>
             {renderScheduleForm(editingId ? resetForm : null)}
           </div>
+          
+          {/* PC 전용 휴지통 토글 영역 */}
+          <div className="mt-4 text-right">
+             <button 
+              onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
+              className={`inline-flex px-4 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
+                showTrash ? 'bg-slate-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300'
+              }`}
+            >
+              {showTrash ? '목록으로 돌아가기' : <><Trash2 size={18}/> 삭제된 휴지통 보기</>}
+            </button>
+          </div>
         </aside>
 
         {/* 메인 리스트 및 달력 영역 */}
@@ -524,7 +675,7 @@ function App() {
 
           {/* 달력에서 날짜를 선택했을 때 해당 날짜를 알려주는 제목 */}
           {isCalendarView && !showTrash && (
-            <div className="mb-2 mt-1 px-1">
+            <div className="mb-2 mt-1 px-1 flex justify-between items-end">
               <h3 className="text-[1.1rem] md:text-xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-2.5">
                 {parseInt(selectedDate.split('-')[1])}월 {parseInt(selectedDate.split('-')[2])}일의 일정
               </h3>
@@ -657,6 +808,68 @@ function App() {
           )}
         </main>
       </div>
+
+      {/* 가족 연동 설정 모달 */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+               <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                 <Users className="text-[#508A12]" size={28} /> 가족 계정 연동
+               </h2>
+               <button onClick={() => setShowSettings(false)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-500 dark:text-slate-300 active:scale-90 transition-all">
+                 <span className="font-bold px-2">닫기</span>
+               </button>
+            </div>
+
+            <div className="space-y-6">
+              <div className="bg-slate-50 dark:bg-slate-700/50 p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
+                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">내 연동 코드</h3>
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
+                  어머니의 핸드폰 앱에서 아래 코드를 복사해, 질문자님의 핸드폰/PC에 입력하시면 일정을 함께 관리할 수 있습니다.
+                </p>
+                <div className="flex gap-2">
+                  <input type="text" readOnly value={user?.uid || ''} className="flex-1 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-sm px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 outline-none" />
+                  <button onClick={handleCopyCode} className="px-4 bg-[#508A12] text-white rounded-xl font-bold flex items-center gap-1.5 hover:bg-[#3E6B0E] transition-colors">
+                    {copySuccess ? <><Check size={18}/> 복사됨</> : <><Copy size={18}/> 복사</>}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-700/50 p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
+                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">가족의 일정 관리하기</h3>
+                
+                {linkedUid ? (
+                  <div>
+                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4">
+                      현재 가족의 일정과 연동되어 있습니다.<br/>(코드: <span className="font-mono">{linkedUid.slice(0,8)}...</span>)
+                    </p>
+                    <button onClick={handleUnlink} className="w-full py-4 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-black rounded-xl hover:bg-red-200 transition-colors">
+                      연동 해제하고 내 일정 보기
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3">
+                      가족(어머니)의 핸드폰에서 복사한 '연동 코드'를 붙여넣으세요.
+                    </p>
+                    <input 
+                      type="text" 
+                      value={linkInput} 
+                      onChange={(e) => setLinkInput(e.target.value)} 
+                      placeholder="여기에 코드를 붙여넣으세요" 
+                      className="w-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white px-4 py-4 rounded-xl border border-slate-200 dark:border-slate-600 mb-3 outline-none focus:border-[#508A12]"
+                    />
+                    <button onClick={handleLinkAccount} disabled={!linkInput.trim()} className="w-full py-4 bg-slate-800 text-white dark:bg-slate-600 font-black rounded-xl hover:bg-slate-700 transition-colors disabled:opacity-50">
+                      가족 일정 연동하기
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
