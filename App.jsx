@@ -1,9 +1,9 @@
 /**
  * [버전 정보]
- * v1.19.0 (2026-03-28)
- * - 달력 높이 최적화: 달력의 불필요한 상하 폭(vh 등)을 고정 픽셀(rem)로 변경하여 하단 일정이 가려지지 않도록 수정
- * - 달력 연동 UX 강화: 달력에서 날짜 선택 시 하단에 "O월 O일의 일정"이라는 제목이 표시되며 해당 일정만 명확히 필터링됨
- * - 전체화면(PWA) 지원: 홈 화면에 추가 시 주소창이 사라지고 독립된 앱처럼 실행되도록 meta 태그(apple-mobile-web-app-capable 등) 추가
+ * v1.20.0 (2026-03-28)
+ * - 상단 헤더 반응형 및 가독성 고도화: 모바일 기기의 시스템 폰트 크기 설정(글자 크게 보기 등)에 영향받지 않도록 px/vw 단위를 강제 적용하여 무조건 1줄로 표시되게 수정
+ * - 토글 버튼 최적화: '달력' / '홈' 버튼의 좌우 여백(Padding)을 줄여 날짜가 표시될 공간을 최대한 확보
+ * - 텍스트 줄바꿈 방지: whitespace-nowrap 속성을 추가하여 디자인이 깨지는 현상 원천 차단
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -311,7 +311,7 @@ function App() {
     displaySchedules = calendarFilteredSchedules;
   }
 
-  // 달력 렌더링 로직 (상하 폭을 대폭 축소)
+  // 달력 렌더링 로직
   const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -348,8 +348,7 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 // 버튼 높이를 대폭 줄여서 상하 폭 최적화 (h-12 ~ h-14 수준)
-                 className={`flex flex-col items-center justify-center rounded-[1rem] h-[3.2rem] md:h-[4rem] transition-all relative overflow-hidden ${
+                 className={`flex flex-col items-center justify-center rounded-[1rem] md:rounded-[1.2rem] h-[3.2rem] md:h-[4rem] transition-all relative overflow-hidden ${
                    isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
                    : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
@@ -456,21 +455,23 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      {/* 상단 헤더 */}
-      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-[clamp(0.75rem,2vh,1.25rem)] transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center">
-          <div>
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(1.4rem,6vw,2.5rem)] tracking-tighter leading-none">
+      {/* 상단 헤더: 공간 최적화 및 좌측 정렬 완벽 일치, 1줄 강제 처리 */}
+      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 md:py-5 transition-colors duration-300">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center gap-2">
+          {/* 글자가 화면 크기에 상관없이 무조건 1줄로 유지되도록 속성 추가 */}
+          <div className="flex-1 overflow-hidden">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,4.8vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
-          <div className="flex items-center gap-[clamp(0.5rem,2vw,1rem)]">
+          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+            {/* 눈에 잘 띄되, 왼쪽 글자가 차지할 수 있는 폭을 양보하도록 버튼 크기 축소 */}
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
               }}
-              className="flex items-center justify-center min-w-[80px] px-[clamp(1rem,4vw,1.5rem)] py-[clamp(0.5rem,1.5vh,0.75rem)] bg-[#508A12] text-white rounded-full font-black text-[clamp(1rem,4vw,1.25rem)] active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center px-4 py-2.5 md:px-8 md:py-4 bg-[#508A12] text-white rounded-full font-black text-[15px] md:text-2xl active:scale-95 transition-all shadow-md flex-shrink-0"
             >
               {isCalendarView ? '홈' : '달력'}
             </button>
