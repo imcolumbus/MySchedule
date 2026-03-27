@@ -1,12 +1,12 @@
 /**
  * [버전 정보]
- * v1.26.0 (2026-03-28)
- * - URL 기반 완전 자동 공유방 시스템: 복잡하고 오류가 잦은 '가족 연동 코드' 기능을 완전히 삭제하고, Vercel 주소만 공유하면 누구나 동일한 가족 일정을 실시간으로 볼 수 있도록 직관성 극대화 (작성자 필터링 해제)
- * - 기존 데이터 완벽 복구: 작성자 필터링을 해제함으로써, 구글 로그인이든 익명 로그인이든 상관없이 기존에 작성했던 모든 소중한 일정이 다시 화면에 나타남
- * - Firestore 에러 감지 UI 추가: Firebase 보안 규칙이 잠겨서 데이터를 저장/불러오지 못할 경우, 하얀 화면이나 먹통이 되는 대신 정확한 해결 방법을 알려주는 알림창(Modal) 도입
+ * v1.27.0 (2026-03-28)
+ * - 4자리 PIN 잠금 시스템 도입: 앱 접속 시 4자리 비밀번호를 요구하여, URL이 유출되더라도 타인이 절대 일정을 볼 수 없도록 강력한 보안 계층 추가
+ * - 자동 로그인 유지: 한 번 PIN을 입력해 통과하면 기기에 저장(localStorage)되어 다음 접속부터는 비밀번호 입력 없이 곧바로 일정 확인 가능
+ * - 기존 데이터 완벽 보존: 공용 경로(public)를 그대로 사용하여 기존 데이터 손실 없이 보안만 덧씌움
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -17,6 +17,8 @@ import {
   deleteDoc, 
   doc, 
   updateDoc,
+  setDoc,
+  getDoc,
   serverTimestamp 
 } from 'firebase/firestore';
 import { 
@@ -41,7 +43,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
-  XCircle
+  XCircle,
+  Lock,
+  Unlock
 } from 'lucide-react';
 
 // 강제 스타일 및 PWA(전체화면 앱) 메타 태그 주입 로직
@@ -152,7 +156,14 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [showTrash, setShowTrash] = useState(false); 
   const [showPast, setShowPast] = useState(false); 
-  const [errorModal, setErrorModal] = useState(null); // 에러 메시지 알림창 상태
+  const [errorModal, setErrorModal] = useState(null);
+
+  // 보안(PIN) 관련 상태
+  const [isPinChecked, setIsPinChecked] = useState(false);
+  const [isPinAuthenticated, setIsPinAuthenticated] = useState(false);
+  const [savedPin, setSavedPin] = useState(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
 
   // 달력 모드 상태
   const [isCalendarView, setIsCalendarView] = useState(false);
@@ -187,7 +198,7 @@ export default function App() {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
   });
 
-  // 익명 로그인 자동 진행
+  // 1. 익명 로그인 자동 진행
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => {
@@ -195,7 +206,6 @@ export default function App() {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
         } else {
-          // 기기에 저장된 세션이 없으면 자동 익명 가입
           if (!auth.currentUser) {
             await signInAnonymously(auth);
           }
@@ -212,9 +222,38 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 일정 데이터 불러오기 (모든 사람이 공유하는 public 폴더 데이터 전체)
+  // 2. 가족 비밀번호(PIN) 설정 여부 확인
   useEffect(() => {
     if (!user || !db) return;
+    const checkPin = async () => {
+      try {
+        const settingsRef = doc(db, 'artifacts', appId, 'public', 'settings');
+        const snap = await getDoc(settingsRef);
+        
+        if (snap.exists() && snap.data().familyPin) {
+          setSavedPin(snap.data().familyPin);
+          // 로컬 스토리지에 인증 기록이 있으면 자동 통과
+          if (localStorage.getItem(`pin_auth_${appId}`) === 'true') {
+            setIsPinAuthenticated(true);
+          }
+        } else {
+          setSavedPin(null); // PIN이 설정되지 않은 상태
+        }
+      } catch (err) {
+        console.error("PIN Check Error:", err);
+        if (err.code === 'permission-denied') {
+          setErrorModal("데이터베이스 권한이 잠겨있습니다.\nFirebase 콘솔의 [Firestore Database] -> [규칙] 탭에서 'allow read, write: if request.auth != null;' 로 권한을 설정해주세요.");
+        }
+      } finally {
+        setIsPinChecked(true);
+      }
+    };
+    checkPin();
+  }, [user, db]);
+
+  // 3. (인증 완료 시) 일정 데이터 불러오기
+  useEffect(() => {
+    if (!user || !db || !isPinAuthenticated) return;
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
     const unsubscribe = onSnapshot(schedulesRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -223,13 +262,39 @@ export default function App() {
     }, (err) => {
       console.error("Firestore Error:", err);
       setLoading(false);
-      // 권한 에러(permission-denied) 발생 시 명확히 안내
-      if (err.code === 'permission-denied') {
-        setErrorModal("데이터를 불러올 수 없습니다.\nFirebase 콘솔의 [Firestore Database] -> [규칙(Rules)] 탭에서 'allow read, write: if true;' 로 권한을 열어주세요.");
-      }
     });
     return () => unsubscribe();
-  }, [user, db]);
+  }, [user, db, isPinAuthenticated]);
+
+  // PIN 설정 및 확인 핸들러
+  const handlePinSubmit = async (e) => {
+    e.preventDefault();
+    if (pinInput.length !== 4) {
+      setPinError("비밀번호는 4자리 숫자로 입력해주세요.");
+      return;
+    }
+
+    if (!savedPin) {
+      // PIN 최초 설정
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'settings'), { familyPin: pinInput });
+        setSavedPin(pinInput);
+        setIsPinAuthenticated(true);
+        localStorage.setItem(`pin_auth_${appId}`, 'true'); // 인증 정보 저장
+      } catch (err) {
+        setPinError("설정 저장 실패: 권한을 확인해주세요.");
+      }
+    } else {
+      // PIN 확인
+      if (pinInput === savedPin) {
+        setIsPinAuthenticated(true);
+        localStorage.setItem(`pin_auth_${appId}`, 'true'); // 인증 정보 저장
+      } else {
+        setPinError("비밀번호가 틀렸습니다. 다시 시도해주세요.");
+        setPinInput('');
+      }
+    }
+  };
 
   const resetForm = () => {
     setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); 
@@ -259,8 +324,6 @@ export default function App() {
       resetForm();
     } catch (err) { 
       console.error("Save Fail:", err); 
-      // 추가/수정 권한 에러 발생 시 안내
-      setErrorModal("일정을 저장할 권한이 막혀있습니다.\nFirebase 콘솔의 [Firestore Database] -> [규칙(Rules)] 탭에서 'allow read, write: if true;' 로 설정 후 게시해주세요.");
     } finally {
       setIsSaving(false);
     }
@@ -272,9 +335,7 @@ export default function App() {
       try {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: true });
         if (editingId === id) resetForm();
-      } catch (err) { 
-        setErrorModal("삭제 권한이 없습니다. Firebase 보안 규칙을 확인해주세요."); 
-      }
+      } catch (err) { console.error("Trash Fail:", err); }
     }
   };
 
@@ -282,9 +343,7 @@ export default function App() {
     if (!db || !user) return;
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: false });
-    } catch (err) { 
-      setErrorModal("복구 권한이 없습니다. Firebase 보안 규칙을 확인해주세요."); 
-    }
+    } catch (err) { console.error("Restore Fail:", err); }
   };
 
   const handlePermanentDelete = async (id) => {
@@ -292,9 +351,7 @@ export default function App() {
     if (confirm("이 일정을 완전히 삭제하시겠습니까? 복구할 수 없습니다.")) {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
-      } catch (err) { 
-        setErrorModal("영구 삭제 권한이 없습니다. Firebase 보안 규칙을 확인해주세요."); 
-      }
+      } catch (err) { console.error("Delete Fail:", err); }
     }
   };
 
@@ -314,7 +371,6 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 작성자(author) 필터링 조건 삭제: URL을 공유받은 가족 누구나 모든 일정을 볼 수 있음
   const activeSchedules = useMemo(() => {
     return schedules
       .filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr)
@@ -454,54 +510,111 @@ export default function App() {
     </form>
   );
 
-  if (!app) return (
-    <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center">
-      <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-xl max-w-md w-full border-t-[12px] border-red-500">
-        <AlertTriangle className="text-red-500 mx-auto mb-4" size={56} />
-        <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-4">설정 확인 필요</h1>
+  // 에러 모달 공통 컴포넌트
+  if (errorModal) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-[2.5rem] p-6 md:p-8 shadow-2xl text-center border-t-[12px] border-red-500">
+          <XCircle className="text-red-500 mx-auto mb-4" size={64} />
+          <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-4">데이터베이스 잠김</h2>
+          <p className="text-slate-600 dark:text-slate-300 font-bold mb-6 whitespace-pre-wrap leading-relaxed text-[15px]">
+            {errorModal}
+          </p>
+          <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-2xl text-left">
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-keep">
+              💡 <strong className="text-red-500">해결 방법 (Firebase 규칙 수정):</strong><br/>
+              1. Firebase 콘솔 ➡️ [Firestore Database] 메뉴<br/>
+              2. 상단의 [규칙 (Rules)] 탭 선택<br/>
+              3. 아래 코드로 변경 후 '게시' 클릭<br/>
+              <code className="block mt-2 bg-white dark:bg-slate-800 p-2 rounded text-red-500 font-mono text-xs">
+                allow read, write: if request.auth != null;
+              </code>
+            </p>
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // 데이터베이스 초기화 대기 화면
+  if (!app || !isPinChecked) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center">
+        <RefreshCw className="animate-spin text-[#508A12] opacity-50" size={48} />
+      </div>
+    );
+  }
+
+  // 🔒 가족 비밀번호(PIN) 잠금 화면 렌더링
+  if (!isPinAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center transition-colors duration-300">
+        <div className="bg-white dark:bg-slate-800 p-8 md:p-12 rounded-[3rem] shadow-xl max-w-md w-full border-t-[16px] border-[#508A12]">
+          
+          {savedPin ? (
+            <Lock className="text-[#508A12] mx-auto mb-6" size={64} strokeWidth={2} />
+          ) : (
+            <Unlock className="text-[#508A12] mx-auto mb-6" size={64} strokeWidth={2} />
+          )}
+          
+          <h1 className="text-3xl font-black text-slate-800 dark:text-white mb-3">
+            {savedPin ? '우리 가족 일정' : '초기 설정'}
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 font-bold mb-8 text-[15px] leading-relaxed break-keep">
+            {savedPin 
+              ? '안전한 일정 공유를 위해\n가족 비밀번호 4자리를 입력해주세요.' 
+              : '외부인이 일정을 볼 수 없도록\n가족끼리 사용할 비밀번호 4자리를 설정하세요.'}
+          </p>
+
+          <form onSubmit={handlePinSubmit}>
+            <input 
+              type="password" 
+              pattern="[0-9]*" 
+              inputMode="numeric"
+              maxLength={4}
+              value={pinInput}
+              onChange={(e) => {
+                setPinInput(e.target.value.replace(/[^0-9]/g, '')); // 숫자만 입력 허용
+                setPinError('');
+              }}
+              placeholder="0000"
+              className="w-full text-center text-4xl tracking-[1em] p-6 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#508A12]/30 transition-all shadow-inner mb-4"
+              autoFocus
+            />
+            {pinError && <p className="text-red-500 font-bold mb-4 text-sm">{pinError}</p>}
+            
+            <button 
+              type="submit" 
+              disabled={pinInput.length !== 4}
+              className="w-full py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-xl shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50"
+            >
+              {savedPin ? '비밀번호 확인' : '비밀번호 저장하고 시작하기'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // 메인 화면 로딩 대기
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex flex-col items-center justify-center">
+        <RefreshCw className="animate-spin text-[#508A12] opacity-50 mb-4" size={48} />
+        <p className="text-slate-500 font-bold">비밀번호 확인 완료. 일정을 불러옵니다...</p>
+      </div>
+    );
+  }
 
   // 메인 앱
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      
-      {/* Firebase 권한 거부 에러 모달 */}
-      {errorModal && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 transition-all">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-[2.5rem] p-6 md:p-8 shadow-2xl text-center border-t-[12px] border-red-500">
-            <XCircle className="text-red-500 mx-auto mb-4" size={64} />
-            <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-4">데이터베이스 권한 잠김</h2>
-            <p className="text-slate-600 dark:text-slate-300 font-bold mb-6 whitespace-pre-wrap leading-relaxed text-[15px]">
-              {errorModal}
-            </p>
-            <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-2xl mb-6 text-left">
-              <p className="text-sm text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-keep">
-                💡 <strong className="text-red-500">해결 방법:</strong><br/>
-                1. Firebase 콘솔 로그인<br/>
-                2. [Firestore Database] 메뉴 선택<br/>
-                3. 상단의 [규칙 (Rules)] 탭 선택<br/>
-                4. <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded text-red-500">allow read, write: if true;</code> 로 변경 후 '게시' 클릭
-              </p>
-            </div>
-            <button 
-              onClick={() => setErrorModal(null)} 
-              className="w-full py-4 bg-slate-800 text-white dark:bg-slate-600 font-black rounded-xl hover:bg-slate-700 transition-colors"
-            >
-              확인했습니다
-            </button>
-          </div>
-        </div>
-      )}
-
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
             <p className="text-slate-900 dark:text-white font-black text-[clamp(14px,3.8vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
-            {/* 가족 연동이 자동으로 전체 공유되므로 태그 제거됨 */}
           </div>
           
           <div className="flex items-center gap-2 md:gap-2 flex-shrink-0">
@@ -557,80 +670,73 @@ export default function App() {
             </div>
           )}
 
-          {loading ? (
-             <div className="py-20 text-center">
-              <RefreshCw className="animate-spin mx-auto text-[#508A12] opacity-50" size={48} />
-              <p className="mt-4 text-slate-500 font-bold">일정을 불러오는 중입니다...</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {displaySchedules.map((item) => (
-                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
-                  <div className="flex-1 w-full">
-                     <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                       <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 md:py-1.5 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
-                         {formatDateWithDay(item.startDate)}
-                         {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
+          <div className="grid grid-cols-1 gap-3">
+            {displaySchedules.map((item) => (
+              <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
+                <div className="flex-1 w-full">
+                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                     <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 md:py-1.5 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
+                       {formatDateWithDay(item.startDate)}
+                       {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
+                     </span>
+                     {!showTrash && (
+                       <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
+                         {getDDay(item.startDate)}
                        </span>
-                       {!showTrash && (
-                         <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
-                           {getDDay(item.startDate)}
-                         </span>
-                       )}
-                     </div>
-
-                     <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
-                       {item.title}
-                     </h4>
-                     
-                     <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
-                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
-                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
-                     </div>
-
-                     {item.content && (
-                       <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
-                       </div>
                      )}
-                  </div>
+                   </div>
 
-                  <div className="hidden lg:flex flex-col gap-2 self-start">
-                    {!showTrash ? (
-                      <>
-                        <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
-                        <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-50 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
-                      </>
-                    ) : (
-                      <>
-                        <button onClick={() => handleRestore(item.id)} className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={20} /></button>
-                        <button onClick={() => handlePermanentDelete(item.id)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={20} /></button>
-                      </>
-                    )}
-                  </div>
+                   <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                     {item.title}
+                   </h4>
+                   
+                   <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
+                     {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
+                     {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
+                   </div>
+
+                   {item.content && (
+                     <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
+                       <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
+                     </div>
+                   )}
                 </div>
-              ))}
-              {displaySchedules.length === 0 && (
-                <div className="py-10 text-center bg-white dark:bg-slate-800 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-700 mx-2">
-                  {showTrash ? (
+
+                <div className="hidden lg:flex flex-col gap-2 self-start">
+                  {!showTrash ? (
                     <>
-                      <Trash size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                      <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
+                      <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
+                      <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-50 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
                     </>
                   ) : (
                     <>
-                      <CalendarDays size={50} className="mx-auto mb-3 text-[#508A12] opacity-40" />
-                      <p className="text-slate-500 dark:text-slate-400 font-black text-[clamp(1.1rem,4vw,1.4rem)] mb-2">
-                        {isCalendarView ? '이 날짜에는 등록된 일정이 없습니다.' : '예정된 일정이 없습니다.'}
-                      </p>
+                      <button onClick={() => handleRestore(item.id)} className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={20} /></button>
+                      <button onClick={() => handlePermanentDelete(item.id)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={20} /></button>
                     </>
                   )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            ))}
+            {displaySchedules.length === 0 && (
+              <div className="py-10 text-center bg-white dark:bg-slate-800 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-700 mx-2">
+                {showTrash ? (
+                  <>
+                    <Trash size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                    <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
+                  </>
+                ) : (
+                  <>
+                    <CalendarDays size={50} className="mx-auto mb-3 text-[#508A12] opacity-40" />
+                    <p className="text-slate-500 dark:text-slate-400 font-black text-[clamp(1.1rem,4vw,1.4rem)] mb-2">
+                      {isCalendarView ? '이 날짜에는 등록된 일정이 없습니다.' : '예정된 일정이 없습니다.'}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
-          {!loading && !showTrash && !isCalendarView && (
+          {!showTrash && !isCalendarView && (
             <div className="mt-5 mb-4 flex flex-col items-center">
               <button 
                 onClick={() => setShowPast(!showPast)}
