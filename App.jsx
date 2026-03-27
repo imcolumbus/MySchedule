@@ -1,8 +1,7 @@
 /**
  * [버전 정보]
- * v1.31.0 (2026-03-28)
- * - 모바일 헤더 레이아웃 미세 조정: 큰 시스템 폰트 환경에서 상단 날짜가 '...'으로 잘리는 현상을 방지하기 위해 '집', '달력' 버튼의 좌우 패딩(px)을 축소하고 폰트 가변 크기(vw)를 재조정
- * - 전체적인 반응형 안정성 강화: 버튼 텍스트 줄바꿈 방지(whitespace-nowrap) 추가
+ * v1.32.0 (2026-03-28)
+ * - 모바일 헤더 폰트 사이즈 극대화: 상단 날짜 및 요일 텍스트가 잘리지 않는 선에서 최대한 크고 시원하게 보이도록 clamp 가변 폰트 사이즈(vw) 상향 조정 (5.2vw -> 6.2vw, 최소 20px 보장)
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -470,7 +469,6 @@ export default function App() {
          <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
            <MapPin size={24} strokeWidth={2.5}/> 우리집 주소
          </h3>
-         {/* 글자 크기를 줄여 2줄 이내로 깔끔하게 떨어지도록 유도 */}
          <p className="text-[clamp(1.2rem,5vw,1.5rem)] md:text-2xl font-black text-slate-800 dark:text-white break-keep leading-snug">
            {familyInfo?.address || '아직 등록된 주소가 없습니다.\n(PC에서 입력해주세요)'}
          </p>
@@ -491,7 +489,6 @@ export default function App() {
               return (
                 <a key={num} href={`tel:${phone}`} className="flex items-center justify-between p-3.5 md:p-4 bg-[#508A12] hover:bg-[#3E6B0E] text-white rounded-[1.2rem] md:rounded-[1.5rem] active:scale-95 transition-all shadow-md group">
                    <div className="flex flex-col">
-                     {/* 이름 크기 약간 축소 */}
                      <span className="text-[1.4rem] md:text-2xl font-black">{name}</span>
                      <span className="text-base md:text-lg text-white/90 font-bold mt-0.5">{phone}</span>
                    </div>
@@ -509,7 +506,6 @@ export default function App() {
 
       {/* 3. 생일 및 가족 메모 */}
       <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         {/* 타이틀 축소 */}
          <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
            <Info size={24} strokeWidth={2.5}/> 기억할 정보
          </h3>
@@ -814,9 +810,9 @@ export default function App() {
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-2.5 md:py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
-          {/* 상단 날짜 폰트 사이즈를 더 키울 수 있도록 넓은 범위(clamp) 허용하되, 잘림 방지를 위해 vw 수치 미세조정 */}
+          {/* 상단 날짜 폰트 사이즈를 더 키울 수 있도록 넓은 범위(clamp) 상향 조정: 20px ~ 36px 보장 */}
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(15px,5.2vw,34px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(20px,6.2vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
@@ -925,7 +921,6 @@ export default function App() {
 
                        {item.content && (
                          <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                           {/* 메모가 넘치면 말줄임표 처리되도록 line-clamp-2 유지 */}
                            <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
                          </div>
                        )}
