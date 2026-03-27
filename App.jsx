@@ -1,10 +1,9 @@
 /**
  * [버전 정보]
- * v1.12.0 (2024-05-24)
- * - 홈 화면 아이콘: 홈 화면에 추가 시 깔끔한 초록색 달력 아이콘이 나오도록 메타 태그 동적 삽입
- * - 레이아웃 정렬: 상단 날짜 텍스트와 하단 일정 카드의 좌측 여백을 완벽히 일치시켜 안정감 확보
- * - 달력 시인성 극대화: 요일 글자 크기 대폭 확대, 일정이 있는 날짜는 칸 전체에 색상 배경 적용
- * - 모바일 환경 최적화 및 다크 모드 대응 유지
+ * v1.13.0 (2024-05-24)
+ * - 상단 토글 버튼 직관성 강화: 모바일에서 숨겨지던 아이콘 대신 큼직한 텍스트('달력', '홈') 버튼으로 완전 교체
+ * - 달력 일정 표시(Indicator) 개선: 모바일 환경에서 일정이 있는 날짜를 더 확실하게 인지할 수 있도록 배경색 대비 및 마커(점) 크기 확대
+ * - 모바일 사용성(UX) 극대화: 화면 상단 버튼과 날짜 텍스트의 정렬 및 가독성 최적화
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -45,7 +44,7 @@ import {
   List
 } from 'lucide-react';
 
-// 강제 스타일 및 앱 아이콘 주입 로직 (Vercel 및 홈 화면 추가 지원)
+// 강제 스타일 및 앱 아이콘 주입 로직
 if (typeof document !== 'undefined') {
   if (!document.getElementById('tailwind-script')) {
     const script = document.createElement('script');
@@ -55,7 +54,6 @@ if (typeof document !== 'undefined') {
   }
   
   if (!document.getElementById('app-favicon')) {
-    // 예쁜 달력 모양의 SVG 아이콘 생성
     const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#8DC63F"/><rect y="30" width="100" height="70" rx="20" fill="white"/><text x="50" y="82" font-size="50" font-family="sans-serif" font-weight="900" fill="#8DC63F" text-anchor="middle">1</text><circle cx="30" cy="20" r="6" fill="white"/><circle cx="70" cy="20" r="6" fill="white"/></svg>`;
     const iconUrl = `data:image/svg+xml;base64,${btoa(svgIcon)}`;
     
@@ -150,7 +148,6 @@ function App() {
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(getLocalDateString(new Date()));
 
-  // 로컬 기준 오늘 날짜 문자열
   const todayStr = getLocalDateString(new Date());
 
   // 입력 폼 상태
@@ -335,17 +332,18 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[1.2rem] md:rounded-[1.5rem] h-20 md:h-24 transition-all ${
+                 className={`flex flex-col items-center justify-center rounded-[1.2rem] md:rounded-[1.5rem] h-[4.5rem] md:h-24 transition-all relative overflow-hidden ${
                    isSelected ? 'bg-[#8DC63F] text-white shadow-md scale-105' 
                    : hasSchedule ? 'bg-[#E9F3D5] dark:bg-[#3d4d29] hover:bg-[#D5E8B5] dark:hover:bg-[#4a5e32]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-2xl md:text-3xl font-black ${isSelected ? 'text-white' : isToday ? 'text-[#8DC63F]' : hasSchedule ? 'text-[#5D8C00] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-[1.4rem] md:text-3xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#8DC63F]' : hasSchedule ? 'text-[#5D8C00] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
                    {dayNum}
                  </span>
+                 {/* 일정이 있는 날 명확한 마커(점) 표시 */}
                  {hasSchedule && (
-                   <div className={`w-2.5 h-2.5 rounded-full mt-2 ${isSelected ? 'bg-white' : 'bg-[#8DC63F] dark:bg-[#8DC63F]'}`} />
+                   <div className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full mt-1 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#8DC63F] dark:bg-[#8DC63F]'}`} />
                  )}
                </button>
              );
@@ -451,19 +449,15 @@ function App() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {/* 달력 보기 / 목록 보기 토글 버튼 */}
+            {/* 눈에 잘 띄는 큼직한 텍스트 토글 버튼 */}
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
               }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#F0F7E6] dark:bg-slate-700 text-[#5D8C00] dark:text-[#8DC63F] rounded-full font-black text-sm md:text-base active:scale-95 transition-all shadow-sm border border-[#8DC63F]/20 dark:border-transparent"
+              className="flex items-center justify-center min-w-[80px] px-6 py-3 md:px-8 md:py-4 bg-[#8DC63F] text-white rounded-full font-black text-xl md:text-2xl active:scale-95 transition-all shadow-md"
             >
-              {isCalendarView ? (
-                <><List size={22} strokeWidth={2.5} /> <span className="hidden md:inline">목록 보기</span></>
-              ) : (
-                <><CalendarDays size={22} strokeWidth={2.5} /> <span className="hidden md:inline">달력 보기</span></>
-              )}
+              {isCalendarView ? '홈' : '달력'}
             </button>
             
             {/* PC 전용 휴지통 토글 */}
