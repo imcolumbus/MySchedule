@@ -32,46 +32,76 @@ import {
   BrainCircuit,
   Settings,
   MoreVertical,
-  ChevronRight
+  ChevronRight,
+  Info
 } from 'lucide-react';
 
 /**
  * [버전 정보]
- * v1.4.0 (2024-05-24)
- * - 상용 앱 수준 UI/UX 리뉴얼: 건강 매니저 스타일의 고대비 그린 테마 및 라운드 카드 적용
- * - 입력 인터페이스 간소화: 상단 '새 일정 추가' 버튼으로 입력 폼 제어
- * - 하단 네비게이션 도입: 모바일 친화적인 탭 메뉴 구성
- * - 시각적 가독성 극대화: 전문가급 폰트 배치 및 정보 위계 설정
- * - PC/모바일 하이브리드 최적화 레이아웃 유지
+ * v1.4.1 (2024-05-24)
+ * - 설정 오류 해결: 환경 변수(VITE_FIREBASE_CONFIG) 인식 로직 대폭 강화
+ * - 디버깅 UI 추가: 설정 실패 시 원인 파악을 위한 상태 정보 표시
+ * - 상용 앱 수준 UI 유지 및 안정성 개선
  */
 
-// 1. Firebase 설정값 추출 로직
+// 1. Firebase 설정값 추출 및 파싱 로직 개선
 const getFirebaseConfig = () => {
   const parseConfig = (raw) => {
     if (!raw) return null;
     let cleaned = String(raw).trim();
     if (!cleaned || cleaned === '{}') return null;
+    
     try {
+      // 주석 및 JS 변수 선언부 제거
       cleaned = cleaned.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1');
       cleaned = cleaned.replace(/(const|let|var)\s+\w+\s*=\s*/g, '');
       cleaned = cleaned.trim().replace(/;$/, '');
+      
       const firstBrace = cleaned.indexOf('{');
       const lastBrace = cleaned.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1) cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+      }
+      
       try {
         return JSON.parse(cleaned);
       } catch (e) {
-        const fixed = cleaned.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*([\]}])/g, '$1');
+        // 따옴표 없는 키 등 비표준 형태 보정
+        const fixed = cleaned
+          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+          .replace(/'/g, '"')
+          .replace(/,\s*([\]}])/g, '$1');
         return JSON.parse(fixed);
       }
-    } catch (err) { return null; }
+    } catch (err) {
+      console.error("Config Parsing Error:", err);
+      return null;
+    }
   };
-  let source = (typeof __firebase_config !== 'undefined' ? __firebase_config : null) || 
-               (typeof process !== 'undefined' ? process.env.VITE_FIREBASE_CONFIG : null);
-  return parseConfig(source);
+
+  let source = null;
+  // 1순위: 전역 변수
+  if (typeof __firebase_config !== 'undefined') source = __firebase_config;
+  
+  // 2순위: Vite 환경 변수 (import.meta.env)
+  if (!source) {
+    try {
+      // @ts-ignore
+      source = import.meta.env.VITE_FIREBASE_CONFIG;
+    } catch (e) {}
+  }
+
+  // 3순위: process.env (Vercel 기본)
+  if (!source && typeof process !== 'undefined' && process.env) {
+    source = process.env.VITE_FIREBASE_CONFIG || process.env.__firebase_config;
+  }
+
+  return { config: parseConfig(source), rawSource: source };
 };
 
-const firebaseConfig = getFirebaseConfig();
+const { config: firebaseConfig, rawSource } = getFirebaseConfig();
+
+// Firebase 초기화 (apiKey 존재 여부 확인)
 const app = (firebaseConfig && firebaseConfig.apiKey) ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
@@ -142,12 +172,32 @@ function App() {
     return schedules.filter(s => (s.endDate || s.startDate) >= todayStr);
   }, [schedules, todayStr]);
 
+  // 설정 오류 시 안내 화면
   if (!app) return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-center">
-      <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border-t-8 border-red-500">
-        <AlertTriangle className="text-red-500 mx-auto mb-4" size={48} />
-        <h1 className="text-2xl font-black">설정 확인</h1>
-        <p className="mt-2 text-slate-500">Firebase 환경 변수를 확인해 주세요.</p>
+    <div className="min-h-screen bg-[#F7F9FB] flex items-center justify-center p-6 text-center font-sans">
+      <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full border-t-[16px] border-red-500">
+        <AlertTriangle className="text-red-500 mx-auto mb-6" size={60} />
+        <h1 className="text-3xl font-black text-slate-800 mb-6">설정 확인</h1>
+        
+        <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 text-left mb-8">
+          <p className="font-black text-blue-900 mb-3 flex items-center gap-2 text-xl">
+            <Info size={24} /> 조치 방법
+          </p>
+          <ul className="text-blue-800 space-y-2 font-bold leading-relaxed">
+            <li>1. Vercel 환경 변수 이름이 <code className="bg-white px-1">VITE_FIREBASE_CONFIG</code> 인지 확인</li>
+            <li>2. 값에 중괄호 <code className="bg-white px-1">{"{ }"}</code> 데이터만 들어있는지 확인</li>
+            <li>3. 저장 후 반드시 <strong>Redeploy</strong>를 실행</li>
+          </ul>
+        </div>
+
+        <div className="text-left border-t border-slate-100 pt-6">
+          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Debug Information</p>
+          <div className="bg-slate-900 text-emerald-400 p-4 rounded-2xl font-mono text-[10px] break-all max-h-40 overflow-auto shadow-inner leading-relaxed">
+             &gt; Variable Detected: {rawSource ? "YES" : "NO"}
+             <br/>&gt; API Key Present: {firebaseConfig?.apiKey ? "YES" : "NO"}
+             <br/>&gt; App Status: Initializing Failed
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -176,7 +226,7 @@ function App() {
         {/* 날짜 및 요약 섹션 */}
         <div className="flex justify-between items-end mb-6">
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-            나의 일정 <span className="text-indigo-600 text-sm font-bold">v1.4</span>
+            나의 일정 <span className="text-indigo-600 text-sm font-bold">v1.4.1</span>
           </h2>
           <button 
             onClick={() => setShowAddForm(true)}
@@ -246,7 +296,7 @@ function App() {
         )}
       </main>
 
-      {/* 하단 네비게이션 바 (모바일 앱 느낌) */}
+      {/* 하단 네비게이션 바 */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 pb-10 pt-4 px-6 z-50 shadow-[0_-10px_30px_rgba(0,0,0,0.02)]">
         <div className="max-w-2xl mx-auto flex justify-between items-center">
           {[
@@ -275,7 +325,7 @@ function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-end md:items-center justify-center p-0 md:p-6">
           <div className="bg-white w-full max-w-lg rounded-t-[3rem] md:rounded-[3rem] p-10 animate-in slide-in-from-bottom-20 duration-500">
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-black">새 일정 등록</h2>
+              <h2 className="text-3xl font-black text-slate-800">새 일정 등록</h2>
               <button onClick={() => setShowAddForm(false)} className="p-2 bg-slate-100 rounded-full text-slate-400"><X/></button>
             </div>
             
@@ -287,25 +337,25 @@ function App() {
                 autoFocus 
               />
               <div className="grid grid-cols-2 gap-4">
-                <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="장소" className="p-4 bg-slate-50 rounded-2xl border-none font-bold" />
-                <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="p-4 bg-slate-50 rounded-2xl border-none font-bold" />
+                <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="장소" className="p-4 bg-slate-50 rounded-2xl border-none font-bold text-lg" />
+                <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="p-4 bg-slate-50 rounded-2xl border-none font-bold text-lg" />
               </div>
               <textarea 
                 value={newContent} onChange={(e) => setNewContent(e.target.value)} 
                 placeholder="상세 내용" rows={3}
-                className="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold" 
+                className="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none font-bold text-lg" 
               />
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
-                <span className="font-black text-slate-700">기간 설정</span>
+                <span className="font-black text-slate-700 text-lg">기간 설정</span>
                 <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-colors ${isRange ? 'bg-emerald-600' : 'bg-slate-300'}`}>
                   <div className={`absolute top-1 bg-white w-6 h-6 rounded-full transition-transform ${isRange ? 'translate-x-7' : 'translate-x-1'}`} />
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-4 bg-slate-50 rounded-xl border-none font-bold" />
-                {isRange && <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-4 bg-slate-50 rounded-xl border-none font-bold" />}
+                <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-4 bg-slate-50 rounded-xl border-none font-bold text-lg" />
+                {isRange && <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-4 bg-slate-50 rounded-xl border-none font-bold text-lg" />}
               </div>
-              <button type="submit" className="w-full py-6 bg-emerald-600 text-white rounded-[2rem] font-black text-2xl shadow-xl shadow-emerald-100">저장하기</button>
+              <button type="submit" className="w-full py-6 bg-emerald-600 text-white rounded-[2rem] font-black text-2xl shadow-xl shadow-emerald-100 active:scale-95 transition-transform">저장하기</button>
             </form>
           </div>
         </div>
