@@ -1,9 +1,10 @@
 /**
  * [버전 정보]
- * v1.20.0 (2026-03-28)
- * - 상단 헤더 반응형 및 가독성 고도화: 모바일 기기의 시스템 폰트 크기 설정(글자 크게 보기 등)에 영향받지 않도록 px/vw 단위를 강제 적용하여 무조건 1줄로 표시되게 수정
- * - 토글 버튼 최적화: '달력' / '홈' 버튼의 좌우 여백(Padding)을 줄여 날짜가 표시될 공간을 최대한 확보
- * - 텍스트 줄바꿈 방지: whitespace-nowrap 속성을 추가하여 디자인이 깨지는 현상 원천 차단
+ * v1.21.0 (2026-03-28)
+ * - D-Day(디데이) 기능 추가: 일정 목록 및 상세 보기에 며칠 남았는지 직관적으로 표시 (D-Day, D-3 등)
+ * - 상단 헤더 공간 최적화: 달력/홈 토글 버튼의 여백을 줄이고 날짜 텍스트를 한 줄에 들어갈 수 있는 최대 크기(vw)로 자동 조절
+ * - 일정 상하 간격 압축: 화면에 더 많은 일정이 보이도록 카드 내부의 패딩(p) 및 요소 간 마진(m)을 촘촘하게 축소
+ * - 달력 화면 초기화 개선: 달력 버튼 클릭 시 항상 오늘 날짜 기준의 달(Month)과 오늘 일정이 바로 보이도록 UX 수정
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -166,6 +167,18 @@ function App() {
 
   const todayStr = getLocalDateString(new Date());
 
+  // D-Day 계산 함수
+  const getDDay = (startDate) => {
+    const todayDate = new Date(todayStr);
+    const targetDate = new Date(startDate);
+    const diffTime = targetDate.getTime() - todayDate.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'D-Day';
+    if (diffDays > 0) return `D-${diffDays}`;
+    return `D+${Math.abs(diffDays)}`;
+  };
+
   // 입력 폼 상태
   const [editingId, setEditingId] = useState(null);
   const [newTitle, setNewTitle] = useState('');
@@ -311,7 +324,7 @@ function App() {
     displaySchedules = calendarFilteredSchedules;
   }
 
-  // 달력 렌더링 로직
+  // 달력 렌더링 로직 (상하 폭 압축 적용)
   const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -325,15 +338,15 @@ function App() {
     }
 
     return (
-      <div className="bg-white dark:bg-slate-800 p-3 md:p-5 rounded-[2rem] shadow-sm mb-2 border border-slate-100 dark:border-slate-700">
-         <div className="flex justify-between items-center mb-3">
-           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={28} className="dark:text-white"/></button>
-           <h2 className="text-[clamp(1.2rem,5vw,2rem)] font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
-           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
+      <div className="bg-white dark:bg-slate-800 p-2.5 md:p-5 rounded-[1.8rem] shadow-sm mb-3 border border-slate-100 dark:border-slate-700">
+         <div className="flex justify-between items-center mb-2 md:mb-4">
+           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-1.5 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={24} className="dark:text-white"/></button>
+           <h2 className="text-[clamp(1.1rem,4.5vw,1.8rem)] font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
+           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-1.5 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={24} className="dark:text-white"/></button>
          </div>
-         <div className="grid grid-cols-7 gap-1 mb-2 text-center">
+         <div className="grid grid-cols-7 gap-1 mb-1.5 text-center">
            {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
-             <div key={i} className={`text-[clamp(0.9rem,3vw,1.1rem)] md:text-xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
+             <div key={i} className={`text-[clamp(0.85rem,3vw,1.1rem)] md:text-xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
            ))}
          </div>
          <div className="grid grid-cols-7 gap-1 md:gap-2">
@@ -348,13 +361,13 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[1rem] md:rounded-[1.2rem] h-[3.2rem] md:h-[4rem] transition-all relative overflow-hidden ${
+                 className={`flex flex-col items-center justify-center rounded-[0.8rem] md:rounded-[1.2rem] h-[3rem] md:h-[4rem] transition-all relative overflow-hidden ${
                    isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
                    : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-[clamp(1.1rem,4vw,1.4rem)] md:text-2xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-[clamp(1rem,3.5vw,1.3rem)] md:text-2xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
                    {dayNum}
                  </span>
                  {hasSchedule && (
@@ -456,22 +469,23 @@ function App() {
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       {/* 상단 헤더: 공간 최적화 및 좌측 정렬 완벽 일치, 1줄 강제 처리 */}
-      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 md:py-5 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center gap-2">
-          {/* 글자가 화면 크기에 상관없이 무조건 1줄로 유지되도록 속성 추가 */}
-          <div className="flex-1 overflow-hidden">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,4.8vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 md:py-4 transition-colors duration-300">
+        <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-1">
+          {/* 글자가 화면 크기에 상관없이 1줄로 최대한 크게 유지되도록 조절 */}
+          <div className="flex-1 overflow-hidden pr-1">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(17px,5.5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-            {/* 눈에 잘 띄되, 왼쪽 글자가 차지할 수 있는 폭을 양보하도록 버튼 크기 축소 */}
+          <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
+            {/* 눈에 잘 띄되, 왼쪽 글자가 차지할 수 있는 폭을 최대한 양보하도록 버튼 크기/여백 축소 */}
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
+                setCalendarMonth(new Date()); // 달력 누를 때 항상 오늘 날짜의 달로 초기화
               }}
-              className="flex items-center justify-center px-4 py-2.5 md:px-8 md:py-4 bg-[#508A12] text-white rounded-full font-black text-[15px] md:text-2xl active:scale-95 transition-all shadow-md flex-shrink-0"
+              className="flex items-center justify-center min-w-[60px] md:min-w-[80px] px-3 py-2 md:px-6 md:py-3 bg-[#508A12] text-white rounded-full font-black text-[15px] md:text-xl active:scale-95 transition-all shadow-md flex-shrink-0"
             >
               {isCalendarView ? '홈' : '달력'}
             </button>
@@ -479,7 +493,7 @@ function App() {
             {/* PC 전용 휴지통 토글 */}
             <button 
               onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
-              className={`hidden lg:flex px-4 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
+              className={`hidden lg:flex px-4 py-2 rounded-full font-black text-sm transition-all items-center gap-2 ${
                 showTrash ? 'bg-slate-800 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
               }`}
             >
@@ -489,12 +503,12 @@ function App() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-4 flex flex-col lg:flex-row gap-[clamp(1rem,3vh,1.5rem)]">
+      <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 flex flex-col lg:flex-row gap-[clamp(0.75rem,2.5vh,1.5rem)]">
         
         {/* PC 전용 */}
         <aside className="hidden lg:block w-[380px] flex-shrink-0">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[120px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[100px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
+            <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
                  {editingId ? <Edit2 className="text-amber-500" size={24} strokeWidth={3} /> : <Plus className="text-[#508A12]" size={24} strokeWidth={3} />} 
                  {editingId ? '일정 수정' : '새 일정 등록'}
@@ -510,8 +524,8 @@ function App() {
 
           {/* 달력에서 날짜를 선택했을 때 해당 날짜를 알려주는 제목 */}
           {isCalendarView && !showTrash && (
-            <div className="mb-3 mt-2 px-1">
-              <h3 className="text-[1.2rem] md:text-2xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-3">
+            <div className="mb-2 mt-1 px-1">
+              <h3 className="text-[1.1rem] md:text-xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-2.5">
                 {parseInt(selectedDate.split('-')[1])}월 {parseInt(selectedDate.split('-')[2])}일의 일정
               </h3>
             </div>
@@ -522,29 +536,35 @@ function App() {
               <RefreshCw className="animate-spin mx-auto text-[#508A12] opacity-50" size={48} />
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-3">
               {displaySchedules.map((item) => (
-                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.5rem] md:rounded-[1.8rem] p-4 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-3 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
+                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
                   <div className="flex-1 w-full">
-                     <div className="mb-2">
-                       <span className={`inline-block text-white font-black text-[clamp(1rem,4vw,1.2rem)] md:text-xl tracking-tight px-[clamp(0.75rem,3vw,1rem)] py-[clamp(0.25rem,1.5vw,0.5rem)] rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
+                     <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                       <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 md:py-1.5 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
                          {formatDateWithDay(item.startDate)}
                          {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
+                       {/* D-Day 배지 추가 */}
+                       {!showTrash && (
+                         <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
+                           {getDDay(item.startDate)}
+                         </span>
+                       )}
                      </div>
 
-                     <h4 className={`text-[clamp(1.4rem,5.5vw,1.8rem)] md:text-[2rem] font-black leading-tight mb-1.5 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                     <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
                        {item.title}
                      </h4>
                      
-                     <div className="flex flex-wrap gap-3 my-1.5">
-                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1.1rem,4.5vw,1.4rem)] md:text-xl flex items-center gap-1.5"><Clock className={`w-[clamp(1.1rem,5vw,1.5rem)] h-[clamp(1.1rem,5vw,1.5rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
-                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1.1rem,4.5vw,1.4rem)] md:text-xl flex items-center gap-1.5"><MapPin className={`w-[clamp(1.1rem,5vw,1.5rem)] h-[clamp(1.1rem,5vw,1.5rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
+                     <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
+                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
+                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
                      </div>
 
                      {item.content && (
-                       <div className={`mt-2.5 p-3.5 md:p-4 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(1rem,4vw,1.2rem)] md:text-xl whitespace-pre-wrap leading-snug">{item.content}</p>
+                       <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
+                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
                        </div>
                      )}
                   </div>
@@ -553,29 +573,29 @@ function App() {
                   <div className="hidden lg:flex flex-col gap-2 self-start">
                     {!showTrash ? (
                       <>
-                        <button onClick={() => handleEditClick(item)} className="p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={22} /></button>
-                        <button onClick={() => handleSoftDelete(item.id)} className="p-3 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={22} /></button>
+                        <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
+                        <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
                       </>
                     ) : (
                       <>
-                        <button onClick={() => handleRestore(item.id)} className="p-3 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={22} /></button>
-                        <button onClick={() => handlePermanentDelete(item.id)} className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={22} /></button>
+                        <button onClick={() => handleRestore(item.id)} className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={20} /></button>
+                        <button onClick={() => handlePermanentDelete(item.id)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={20} /></button>
                       </>
                     )}
                   </div>
                 </div>
               ))}
               {displaySchedules.length === 0 && (
-                <div className="py-12 text-center">
+                <div className="py-10 text-center">
                   {showTrash ? (
                     <>
-                      <Trash size={60} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
-                      <p className="text-slate-400 dark:text-slate-500 font-black text-xl">휴지통이 비어있습니다</p>
+                      <Trash size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                      <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
                     </>
                   ) : (
                     <>
-                      <CalendarDays size={60} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
-                      <p className="text-slate-400 dark:text-slate-500 font-black text-[clamp(1.1rem,4vw,1.4rem)]">
+                      <CalendarDays size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                      <p className="text-slate-400 dark:text-slate-500 font-black text-[clamp(1rem,3.5vw,1.3rem)]">
                         {isCalendarView ? '선택한 날짜에 일정이 없습니다' : '예정된 일정이 없습니다'}
                       </p>
                     </>
@@ -587,43 +607,47 @@ function App() {
 
           {/* 지난 일정 보기 */}
           {!loading && !showTrash && !isCalendarView && (
-            <div className="mt-6 mb-4 flex flex-col items-center">
+            <div className="mt-5 mb-4 flex flex-col items-center">
               <button 
                 onClick={() => setShowPast(!showPast)}
-                className="px-6 py-2.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full font-black text-[clamp(0.9rem,3.5vw,1.1rem)] shadow-sm active:scale-95 transition-all flex items-center gap-2"
+                className="px-5 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full font-black text-[clamp(0.85rem,3.5vw,1rem)] shadow-sm active:scale-95 transition-all flex items-center gap-1.5"
               >
                 {showPast ? '지난 일정 숨기기' : '지난 일정 보기'}
-                {showPast ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                {showPast ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </button>
 
               {showPast && (
-                <div className="w-full mt-4 grid grid-cols-1 gap-3">
+                <div className="w-full mt-3 grid grid-cols-1 gap-2.5">
                   {pastSchedules.length > 0 ? pastSchedules.map((item) => (
-                    <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.5rem] p-4 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-3 opacity-80 hover:opacity-100 transition-opacity">
+                    <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.2rem] p-3.5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-2.5 opacity-80 hover:opacity-100 transition-opacity">
                       <div className="flex-1 w-full">
-                         <div className="mb-2">
-                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 rounded-xl shadow-sm">
+                         <div className="mb-1.5 flex items-center gap-2">
+                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.85rem,3vw,1rem)] tracking-tight px-2.5 py-1 rounded-lg shadow-sm">
                              {formatDateWithDay(item.startDate)}
                              {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                            </span>
+                           {/* 과거 일정도 D-Day 태그 (마이너스로 표시됨) */}
+                           <span className="font-black text-[clamp(0.8rem,3vw,0.9rem)] px-2 py-0.5 rounded-lg bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                             {getDDay(item.startDate)}
+                           </span>
                          </div>
-                         <h4 className="text-[clamp(1.2rem,4.5vw,1.6rem)] md:text-[1.6rem] font-black text-slate-700 dark:text-slate-300 leading-tight mb-1.5 tracking-tight break-keep">{item.title}</h4>
-                         <div className="flex flex-wrap gap-3 my-1">
-                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-[clamp(1rem,4vw,1.2rem)] flex items-center gap-1.5"><Clock className="w-[clamp(1rem,4vw,1.2rem)] h-[clamp(1rem,4vw,1.2rem)] text-slate-400 dark:text-slate-500"/> {item.time}</p>}
-                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-[clamp(1rem,4vw,1.2rem)] flex items-center gap-1.5"><MapPin className="w-[clamp(1rem,4vw,1.2rem)] h-[clamp(1rem,4vw,1.2rem)] text-slate-400 dark:text-slate-500"/> {item.location}</p>}
+                         <h4 className="text-[clamp(1.1rem,4vw,1.4rem)] font-black text-slate-700 dark:text-slate-300 leading-tight mb-1 tracking-tight break-keep">{item.title}</h4>
+                         <div className="flex flex-wrap gap-2.5 my-1">
+                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] flex items-center gap-1"><Clock className="w-[clamp(0.9rem,3.5vw,1.1rem)] h-[clamp(0.9rem,3.5vw,1.1rem)] text-slate-400 dark:text-slate-500"/> {item.time}</p>}
+                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] flex items-center gap-1"><MapPin className="w-[clamp(0.9rem,3.5vw,1.1rem)] h-[clamp(0.9rem,3.5vw,1.1rem)] text-slate-400 dark:text-slate-500"/> {item.location}</p>}
                          </div>
                          {item.content && (
-                           <div className="mt-2 bg-slate-100 dark:bg-slate-700 p-3 rounded-xl">
-                             <p className="text-slate-500 dark:text-slate-300 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
+                           <div className="mt-1.5 bg-slate-100 dark:bg-slate-700 p-2.5 rounded-xl">
+                             <p className="text-slate-500 dark:text-slate-300 font-bold text-[clamp(0.85rem,3vw,1rem)] whitespace-pre-wrap leading-snug">{item.content}</p>
                            </div>
                          )}
                       </div>
-                      <div className="hidden lg:flex flex-col gap-2 self-start">
-                        <button onClick={() => handleSoftDelete(item.id)} className="p-3 bg-red-50 dark:bg-red-900/30 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={20} /></button>
+                      <div className="hidden lg:flex flex-col gap-1.5 self-start">
+                        <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={18} /></button>
                       </div>
                     </div>
                   )) : (
-                     <div className="py-6 text-center text-slate-400 dark:text-slate-500 font-bold text-[clamp(1rem,4vw,1.2rem)] bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
+                     <div className="py-5 text-center text-slate-400 dark:text-slate-500 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] bg-slate-50 dark:bg-slate-800 rounded-[1.2rem] border border-slate-200 dark:border-slate-700">
                       지난 일정이 없습니다.
                     </div>
                   )}
