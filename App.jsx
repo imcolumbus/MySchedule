@@ -1,9 +1,9 @@
 /**
  * [버전 정보]
- * v1.27.0 (2026-03-28)
- * - 4자리 PIN 잠금 시스템 도입: 앱 접속 시 4자리 비밀번호를 요구하여, URL이 유출되더라도 타인이 절대 일정을 볼 수 없도록 강력한 보안 계층 추가
- * - 자동 로그인 유지: 한 번 PIN을 입력해 통과하면 기기에 저장(localStorage)되어 다음 접속부터는 비밀번호 입력 없이 곧바로 일정 확인 가능
- * - 기존 데이터 완벽 보존: 공용 경로(public)를 그대로 사용하여 기존 데이터 손실 없이 보안만 덧씌움
+ * v1.28.0 (2026-03-28)
+ * - 헤더 레이아웃 최적화: 우측 상단 '달력보기'/'홈으로' 텍스트를 '달력'/'홈'으로 축소하여 상단 날짜(요일)가 더 크게 표시되도록 폰트 가변 범위(clamp) 대폭 확대
+ * - 메모 텍스트 줄임(Line Clamp) 적용: 긴 메모가 작성되었을 때 화면 하단 밖으로 카드가 잘리지 않도록 최대 2줄까지만 표시(line-clamp-2)하고 말줄임표(...) 처리하여 세로 높이 최적화
+ * - 자동 로그인 및 PIN 잠금 시스템 유지
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -612,7 +612,7 @@ export default function App() {
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(14px,3.8vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
@@ -624,9 +624,9 @@ export default function App() {
                 setSelectedDate(todayStr); 
                 setCalendarMonth(new Date());
               }}
-              className="flex items-center justify-center min-w-[50px] px-3 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center min-w-[40px] px-3.5 py-2 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-md"
             >
-              {isCalendarView ? '홈으로' : '달력보기'}
+              {isCalendarView ? '홈' : '달력'}
             </button>
           </div>
         </div>
@@ -697,7 +697,7 @@ export default function App() {
 
                    {item.content && (
                      <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                       <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
+                       <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
                      </div>
                    )}
                 </div>
@@ -767,7 +767,7 @@ export default function App() {
                          </div>
                          {item.content && (
                            <div className="mt-1.5 bg-slate-100 dark:bg-slate-700 p-2.5 rounded-xl">
-                             <p className="text-slate-500 dark:text-slate-300 font-bold text-[clamp(0.85rem,3vw,1rem)] whitespace-pre-wrap leading-snug">{item.content}</p>
+                             <p className="text-slate-500 dark:text-slate-300 font-bold text-[clamp(0.85rem,3vw,1rem)] whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
                            </div>
                          )}
                       </div>
