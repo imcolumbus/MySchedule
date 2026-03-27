@@ -1,10 +1,11 @@
 /**
  * [버전 정보]
- * v1.7.0 (2024-05-24)
- * - 순수 일정 앱 UX 개편: 불필요한 하단 탭 메뉴 제거 및 모바일 플로팅 추가 버튼 적용
- * - 상단 헤더 개선: 사용자 아이콘을 '달력'으로 변경하고 오늘 날짜/요일을 명확하게 강조 표시
- * - 기능 추가: 기존 일정의 내용을 변경할 수 있는 '수정' 기능 탑재
- * - 디자인 고도화: 일정 목록에서 수정/삭제 버튼 접근성 개선 및 시니어 맞춤 가독성 최적화
+ * v1.8.0 (2024-05-24)
+ * - 오류 수정: 한국 시간대(KST)와 UTC 시차로 인한 날짜/텍스트 입력 어긋남 현상 완벽 해결
+ * - 모바일 전용 모드: 모바일 환경에서는 수정/삭제/등록 기능 차단 (순수 뷰어 모드)
+ * - 상단 헤더 개편: 사용자 아이콘 제거 및 오늘 연도, 월, 일, 요일 폰트 사이즈 대폭 확대
+ * - 레이아웃 간소화: 불필요한 '오늘 및 주요 일정' 분리 섹션 제거 및 단일 목록으로 통합
+ * - 일정 가독성 강화: 일자와 요일 순으로 크게 보이도록 초록색 태그 형태 배치
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -27,21 +28,19 @@ import {
   onAuthStateChanged 
 } from 'firebase/auth';
 import { 
-  Calendar, 
   Plus, 
   Trash2, 
   Clock,
   AlertTriangle,
   RefreshCw,
   MapPin,
-  X,
   Settings,
   CalendarDays,
   Info,
   Edit2
 } from 'lucide-react';
 
-// [중요] Vercel 환경에서 CSS가 깨지는 현상을 방지하기 위한 강제 스타일 주입 로직
+// 강제 스타일 주입 로직 (Vercel 호환성)
 if (typeof document !== 'undefined' && !document.getElementById('tailwind-script')) {
   const script = document.createElement('script');
   script.id = 'tailwind-script';
@@ -63,9 +62,7 @@ const getFirebaseConfig = () => {
       const start = cleaned.indexOf('{');
       const end = cleaned.lastIndexOf('}') + 1;
       if (start !== -1 && end !== -1) cleaned = cleaned.substring(start, end);
-      try {
-        return JSON.parse(cleaned);
-      } catch (e) {
+      try { return JSON.parse(cleaned); } catch (e) {
         const fixed = cleaned.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*([\]}])/g, '$1');
         return JSON.parse(fixed);
       }
@@ -92,26 +89,43 @@ const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-schedule-app';
 
+// 날짜 유틸리티: UTC 오차를 막기 위한 로컬 타임 문자열 생성기
+const getLocalDateString = (dateObj) => {
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// "3월 27일 금요일" 포맷으로 변환하는 유틸리티
+const formatDateWithDay = (dateStr) => {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-');
+  const dateObj = new Date(year, month - 1, day);
+  const days = ['일', '월', '화', '수', '목', '금', '토'];
+  return `${parseInt(month)}월 ${parseInt(day)}일 ${days[dateObj.getDay()]}요일`;
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
 
-  // 입력 폼 상태 (추가 및 수정 공용)
-  const [editingId, setEditingId] = useState(null); // 수정 중인 일정 ID
+  // 로컬 기준 오늘 날짜 문자열
+  const todayStr = getLocalDateString(new Date());
+
+  // 입력 폼 상태
+  const [editingId, setEditingId] = useState(null);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newLocation, setNewLocation] = useState('');
   const [newTime, setNewTime] = useState('');
-  const [newStartDate, setNewStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newStartDate, setNewStartDate] = useState(todayStr);
   const [newEndDate, setNewEndDate] = useState('');
   const [isRange, setIsRange] = useState(false);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  
-  // 상단에 표시될 전체 날짜 문자열 (예: 2026년 3월 27일 금요일)
+  // 상단 헤더 전체 날짜
   const fullDateDisplay = new Date().toLocaleDateString('ko-KR', { 
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
   });
@@ -143,10 +157,9 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // 폼 초기화 헬퍼 함수
   const resetForm = () => {
     setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); 
-    setNewStartDate(new Date().toISOString().split('T')[0]); setNewEndDate(''); 
+    setNewStartDate(todayStr); setNewEndDate(''); 
     setIsRange(false); setEditingId(null);
   };
 
@@ -162,17 +175,13 @@ function App() {
       };
 
       if (editingId) {
-        // 기존 일정 수정
         scheduleData.updatedAt = serverTimestamp();
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', editingId), scheduleData);
       } else {
-        // 새 일정 추가
         scheduleData.createdAt = serverTimestamp();
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), scheduleData);
       }
-      
       resetForm();
-      setShowAddForm(false);
     } catch (e) { 
       console.error("Save Fail:", e); 
     } finally {
@@ -182,10 +191,10 @@ function App() {
 
   const handleDelete = async (id) => {
     if (!db) return;
-    if (confirm("이 일정을 정말 삭제하시겠습니까?")) {
+    if (confirm("이 일정을 삭제하시겠습니까?")) {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
-        if (editingId === id) { resetForm(); setShowAddForm(false); }
+        if (editingId === id) resetForm();
       } catch (e) { console.error("Delete Fail:", e); }
     }
   };
@@ -196,25 +205,20 @@ function App() {
     setNewLocation(item.location || '');
     setNewTime(item.time || '');
     setNewStartDate(item.startDate);
-    
     if (item.startDate !== item.endDate) {
-      setIsRange(true);
-      setNewEndDate(item.endDate);
+      setIsRange(true); setNewEndDate(item.endDate);
     } else {
-      setIsRange(false);
-      setNewEndDate('');
+      setIsRange(false); setNewEndDate('');
     }
-    
     setEditingId(item.id);
-    setShowAddForm(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // PC 환경을 위해 위로 스크롤
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const categorizedSchedules = useMemo(() => {
     return schedules.filter(s => (s.endDate || s.startDate) >= todayStr);
   }, [schedules, todayStr]);
 
-  // 공통 입력 폼 컴포넌트
+  // 공통 입력 폼 컴포넌트 (PC 우측 표시용)
   const ScheduleForm = ({ onCancel }) => (
     <form onSubmit={handleAddOrEditSchedule} className="space-y-6">
       <div className="space-y-3">
@@ -289,7 +293,7 @@ function App() {
     </form>
   );
 
-  // 오류 화면
+  // 설정 오류 화면
   if (!app) return (
     <div className="min-h-screen bg-[#F7F9FB] flex items-center justify-center p-6 text-center">
       <div className="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full border-t-[16px] border-red-500">
@@ -308,39 +312,35 @@ function App() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F4F7F2] text-slate-900 font-sans pb-32 md:pb-10 overflow-x-hidden">
-      {/* 상단 프로필 및 앱 바 (달력 아이콘 + 날짜 강조) */}
-      <header className="bg-white border-b border-slate-100 shadow-sm sticky top-0 z-40">
-        <div className="px-6 py-5 flex flex-col md:flex-row md:items-center justify-between max-w-6xl mx-auto gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-[#F0F7E6] rounded-full flex items-center justify-center border border-[#8DC63F]/20 shadow-sm">
-               <CalendarDays className="text-[#8DC63F]" size={28} />
+    <div className="min-h-screen bg-[#F4F7F2] text-slate-900 font-sans pb-20 overflow-x-hidden">
+      {/* 상단 프로필 및 앱 바 (초대형 날짜 표시) */}
+      <header className="bg-white shadow-sm sticky top-0 z-40">
+        <div className="px-6 py-6 flex flex-col justify-center max-w-6xl mx-auto gap-2">
+          <h1 className="text-2xl font-black flex items-center gap-2 text-[#4A6D00] tracking-tighter mb-1">
+            <div className="w-10 h-10 bg-[#F0F7E6] rounded-full flex items-center justify-center border border-[#8DC63F]/20 shadow-sm mr-1">
+               <CalendarDays className="text-[#8DC63F]" size={20} />
             </div>
-            <div>
-              <h1 className="text-2xl font-black flex items-center gap-2 text-[#4A6D00] tracking-tighter">
-                나의 일정 <span className="text-slate-400 font-bold text-xs bg-slate-50 border px-2 py-0.5 rounded-md">v1.7.0</span>
-              </h1>
-              <p className="text-slate-800 font-black text-[1.1rem] mt-1 tracking-tight">{fullDateDisplay}</p>
-            </div>
-          </div>
-          <button className="hidden md:flex w-10 h-10 bg-slate-50 rounded-xl items-center justify-center text-slate-400 hover:text-[#8DC63F] transition-all">
-            <Settings size={20} />
-          </button>
+            나의 일정 <span className="text-slate-400 font-bold text-xs bg-slate-50 border px-2 py-0.5 rounded-md ml-1">v1.8.0</span>
+          </h1>
+          {/* 어르신들이 보기 편하게 대폭 키운 날짜 표시 */}
+          <p className="text-slate-900 font-black text-[2.2rem] md:text-5xl tracking-tight leading-snug">
+            {fullDateDisplay}
+          </p>
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-8 flex flex-col lg:flex-row gap-8">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-8 flex flex-col lg:flex-row gap-10">
         
-        {/* PC 전용: 좌측 고정 입력창 */}
+        {/* PC 전용: 좌측 고정 일정 입력 및 수정 (모바일에서는 완전히 숨김) */}
         <aside className="hidden lg:block w-[400px] flex-shrink-0">
-          <div className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.05)] sticky top-[140px] border border-slate-50">
+          <div className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.05)] sticky top-[200px] border border-slate-50">
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
                  {editingId ? <Edit2 className="text-amber-500" size={28} strokeWidth={3} /> : <Plus className="text-[#8DC63F]" size={28} strokeWidth={3} />} 
                  {editingId ? '일정 수정' : '새 일정 등록'}
               </h2>
               {editingId && (
-                <button onClick={resetForm} className="text-sm font-bold text-slate-400 hover:text-slate-600">취소</button>
+                <button onClick={resetForm} className="text-sm font-bold text-slate-400 hover:text-slate-600">등록으로 돌아가기</button>
               )}
             </div>
             <ScheduleForm onCancel={editingId ? resetForm : null} />
@@ -349,128 +349,68 @@ function App() {
 
         {/* 우측/모바일 메인: 일정 목록 영역 */}
         <main className="flex-1 w-full">
-          {/* 메인 비주얼 카드: 오늘 및 주요 일정 */}
-          <section className="bg-gradient-to-br from-[#8DC63F] to-[#72A632] rounded-[3rem] p-8 md:p-10 shadow-[0_20px_40px_-10px_rgba(141,198,63,0.3)] text-white mb-10 relative overflow-hidden transition-all">
-            <div className="absolute right-0 top-0 w-40 h-40 bg-white/10 rounded-full -translate-y-12 translate-x-12 blur-3xl" />
-            <div className="flex justify-between items-center mb-8 relative z-10">
-              <h2 className="text-2xl font-black opacity-95 tracking-tight flex items-center gap-2">
-                오늘 및 주요 일정
-              </h2>
-            </div>
-
-            <div className="space-y-6 relative z-10">
-              {categorizedSchedules.length > 0 ? categorizedSchedules.slice(0, 2).map((item, idx) => (
-                <div key={item.id} className={`group ${idx === 0 ? '' : 'pt-6 border-t border-white/20'}`}>
-                  <div className="flex justify-between items-start mb-3">
-                     <div className="flex-1 pr-4">
-                        <h3 className="text-3xl md:text-[2.5rem] font-black leading-tight mb-3 break-keep tracking-tighter">{item.title}</h3>
-                        <div className="flex flex-wrap gap-3 text-lg md:text-xl font-bold opacity-95">
-                          {item.location && <span className="flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-xl backdrop-blur-sm"><MapPin size={20} /> {item.location}</span>}
-                          <span className="flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-xl backdrop-blur-sm"><Clock size={20} /> {item.time || '시간미정'}</span>
-                        </div>
-                     </div>
-                     <div className="flex flex-col items-center gap-2 flex-shrink-0">
-                       <div className="bg-white text-[#72A632] px-4 md:px-5 py-3 rounded-[1.5rem] text-xl md:text-2xl font-black shadow-lg flex flex-col items-center">
-                         <span className="text-xs md:text-sm opacity-60 leading-none mb-1">{item.startDate.slice(5, 7)}월</span>
-                         {item.startDate.slice(8, 10)}
-                       </div>
-                       {/* 편집/삭제 액션 그룹 */}
-                       <div className="flex gap-2 mt-2">
-                         <button onClick={() => handleEditClick(item)} className="p-2 bg-white/20 rounded-full hover:bg-white/40 transition-all"><Edit2 size={18} /></button>
-                         <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-400/80 rounded-full hover:bg-red-500 transition-all"><Trash2 size={18} /></button>
-                       </div>
-                     </div>
-                  </div>
-                  {item.content && (
-                     <div className="mt-4 bg-black/10 p-5 md:p-6 rounded-[1.5rem] border border-white/10">
-                       <p className="text-lg md:text-xl font-bold opacity-100 leading-relaxed whitespace-pre-wrap">{item.content}</p>
-                     </div>
-                  )}
-                </div>
-              )) : (
-                <div className="py-12 md:py-16 text-center opacity-50">
-                  <CalendarDays size={64} className="mx-auto mb-4" />
-                  <p className="text-xl md:text-2xl font-black italic">다가오는 주요 일정이 없습니다</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* 하단 리스트 섹션: 전체 예정 일정 */}
-          <div className="flex justify-between items-center mb-6 px-2">
-             <h3 className="text-2xl font-black text-slate-800">예정된 전체 일정</h3>
-          </div>
-
           {loading ? (
             <div className="py-24 text-center">
               <RefreshCw className="animate-spin mx-auto text-[#8DC63F] opacity-50" size={56} />
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5">
-              {categorizedSchedules.slice(2).map((item) => (
-                <div key={item.id} className="bg-white rounded-[2rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.02)] border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center group transition-all hover:shadow-lg gap-4">
+            <div className="grid grid-cols-1 gap-6">
+              {categorizedSchedules.map((item) => (
+                <div key={item.id} className="bg-white rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.03)] border border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all hover:shadow-lg gap-4">
                   <div className="flex-1 w-full">
-                     <div className="flex items-center gap-3 mb-2">
-                       <span className="text-[#8DC63F] font-black text-sm md:text-base tracking-tighter bg-[#F0F7E6] px-3 py-1 rounded-lg">
-                         {item.startDate.slice(5).replace('-', '월 ')}일
-                         {item.startDate !== item.endDate && ` ~ ${item.endDate.slice(8)}일`}
+                     {/* 초록색 알약 형태의 날짜/요일 명확한 표시 */}
+                     <div className="mb-4">
+                       <span className="inline-block text-white bg-[#8DC63F] font-black text-lg md:text-xl tracking-tight px-4 py-2 rounded-[1rem] shadow-sm">
+                         {formatDateWithDay(item.startDate)}
+                         {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
                      </div>
-                     <h4 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-2 tracking-tight">{item.title}</h4>
-                     {item.location && <p className="text-slate-400 font-bold text-lg md:text-xl flex items-center gap-1 mt-2"><MapPin size={18} className="text-[#8DC63F]/60"/> {item.location}</p>}
+
+                     <h4 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-3 tracking-tight break-keep">{item.title}</h4>
+                     
+                     <div className="flex flex-wrap gap-3">
+                       {item.time && <p className="text-slate-500 font-bold text-[1.1rem] md:text-xl flex items-center gap-1.5"><Clock size={22} className="text-[#8DC63F]"/> {item.time}</p>}
+                       {item.location && <p className="text-slate-500 font-bold text-[1.1rem] md:text-xl flex items-center gap-1.5"><MapPin size={22} className="text-[#8DC63F]"/> {item.location}</p>}
+                     </div>
+
+                     {item.content && (
+                       <div className="mt-5 bg-[#F4F7F2]/50 p-5 rounded-2xl border border-slate-50">
+                         <p className="text-slate-600 font-bold text-lg md:text-xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                       </div>
+                     )}
                   </div>
-                  <div className="flex items-center gap-3 self-end md:self-center">
+
+                  {/* PC에서만 보이는 수정/삭제 버튼 (모바일에서는 뷰어 모드이므로 숨김 처리) */}
+                  <div className="hidden lg:flex flex-col gap-3 self-start">
                     <button 
                       onClick={() => handleEditClick(item)}
-                      className="p-3 bg-amber-50 text-amber-500 rounded-full hover:bg-amber-500 hover:text-white transition-all shadow-sm active:scale-90"
+                      className="p-4 bg-amber-50 text-amber-500 rounded-2xl hover:bg-amber-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
+                      title="수정"
                     >
                       <Edit2 size={24} />
+                      <span className="text-xs font-black">수정</span>
                     </button>
                     <button 
                       onClick={() => handleDelete(item.id)}
-                      className="p-3 bg-red-50 text-red-400 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90"
+                      className="p-4 bg-red-50 text-red-400 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
+                      title="삭제"
                     >
                       <Trash2 size={24} />
+                      <span className="text-xs font-black">삭제</span>
                     </button>
                   </div>
                 </div>
               ))}
-              {categorizedSchedules.length <= 2 && categorizedSchedules.length > 0 && (
-                <div className="py-16 text-center text-slate-300 font-black text-xl italic">
-                  더 이상 예정된 일정이 없습니다
+              {categorizedSchedules.length === 0 && (
+                <div className="py-20 text-center">
+                  <CalendarDays size={80} className="mx-auto mb-6 text-slate-200" />
+                  <p className="text-slate-300 font-black text-2xl">등록된 일정이 없습니다</p>
                 </div>
               )}
             </div>
           )}
         </main>
       </div>
-
-      {/* 모바일 하단 플로팅 추가 버튼 (불필요한 탭 네비게이션 대체) */}
-      {!showAddForm && (
-        <button 
-          onClick={() => { resetForm(); setShowAddForm(true); }}
-          className="lg:hidden fixed bottom-8 right-8 w-[4.5rem] h-[4.5rem] bg-[#8DC63F] text-white rounded-full flex items-center justify-center shadow-[0_10px_30px_rgba(141,198,63,0.5)] active:scale-90 transition-all z-40 hover:bg-[#7AB12E]"
-        >
-          <Plus size={36} strokeWidth={3} />
-        </button>
-      )}
-
-      {/* 모바일 일정 폼 팝업 (추가/수정 공용) */}
-      {showAddForm && (
-        <div className="lg:hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-end justify-center transition-all">
-          <div className="bg-white w-full max-w-xl rounded-t-[3rem] p-8 pb-12 animate-in slide-in-from-bottom-20 duration-300 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-8 sticky top-0 bg-white z-10 py-2">
-               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                 {editingId ? <Edit2 className="text-amber-500" size={24} /> : <Plus className="text-[#8DC63F]" size={24} />} 
-                 {editingId ? '일정 수정하기' : '새 일정 등록하기'}
-               </h2>
-               <button onClick={() => { resetForm(); setShowAddForm(false); }} className="p-3 bg-slate-100 rounded-full text-slate-500 active:scale-90 transition-all"><X size={24}/></button>
-            </div>
-            {/* 공용 입력 폼 불러오기 */}
-            <ScheduleForm onCancel={() => { resetForm(); setShowAddForm(false); }} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
