@@ -1,10 +1,10 @@
 /**
  * [버전 정보]
- * v1.29.0 (2026-03-28)
- * - '집(가족 정보)' 전용 메뉴 신설: 어머니께서 잊지 않으시도록 집 주소, 가족 생일, 기타 메모를 확인할 수 있는 독립된 뷰(View) 추가
- * - 원터치 전화(tel:) 기능: 등록된 가족 연락처를 큼직한 버튼으로 렌더링하여, 터치 시 즉시 스마트폰 통화 앱으로 연결되도록 구현
- * - PC용 가족 정보 에디터: PC 환경에서 '집' 메뉴 접근 시, 좌측 사이드바가 일정 입력 대신 '가족 정보 저장' 폼으로 전환되도록 동적 렌더링 적용
- * - UX 흐름 개선: [집] ↔ [홈] ↔ [달력] 간의 자연스러운 화면 전환 버튼 로직 구축
+ * v1.30.0 (2026-03-28)
+ * - 우리집 정보(가족 정보) 레이아웃 압축: 화면에 더 많은 정보가 들어오도록 카드 상하 패딩(p) 및 요소 간 여백(space-y, mb) 대폭 축소
+ * - 주소 텍스트 크기 조정: 주소가 너무 커서 3~4줄로 낭비되지 않도록 글자 크기를 줄여 1~2줄로 깔끔하게 표시되게 수정
+ * - 가족 연락처 추가: 기존 3명에서 최대 4명까지 등록할 수 있도록 상태 및 입력 폼 확장
+ * - 타이틀 수정: '기억할 정보 (가족 생일 등)' ➡️ '기억할 정보' 로 단순화
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -179,7 +179,7 @@ export default function App() {
   // 가족 정보 상태
   const [familyInfo, setFamilyInfo] = useState(null);
   
-  // 가족 정보 에디터 폼 상태 (PC용)
+  // 가족 정보 에디터 폼 상태 (PC용) - 4명으로 확장
   const [fAddress, setFAddress] = useState('');
   const [fContact1Name, setFContact1Name] = useState('');
   const [fContact1Phone, setFContact1Phone] = useState('');
@@ -187,6 +187,8 @@ export default function App() {
   const [fContact2Phone, setFContact2Phone] = useState('');
   const [fContact3Name, setFContact3Name] = useState('');
   const [fContact3Phone, setFContact3Phone] = useState('');
+  const [fContact4Name, setFContact4Name] = useState('');
+  const [fContact4Phone, setFContact4Phone] = useState('');
   const [fMemo, setFMemo] = useState('');
 
   // D-Day 계산 함수
@@ -269,6 +271,8 @@ export default function App() {
               setFContact2Phone(data.familyData.contact2Phone || '');
               setFContact3Name(data.familyData.contact3Name || '');
               setFContact3Phone(data.familyData.contact3Phone || '');
+              setFContact4Name(data.familyData.contact4Name || '');
+              setFContact4Phone(data.familyData.contact4Phone || '');
               setFMemo(data.familyData.memo || '');
             }
           }
@@ -332,7 +336,7 @@ export default function App() {
     }
   };
 
-  // 가족 정보 저장 핸들러 (PC 전용 폼)
+  // 가족 정보 저장 핸들러 (PC 전용 폼) - 4명 저장
   const handleSaveFamilyInfo = async (e) => {
     e.preventDefault();
     if (!db) return;
@@ -344,6 +348,7 @@ export default function App() {
           contact1Name: fContact1Name, contact1Phone: fContact1Phone,
           contact2Name: fContact2Name, contact2Phone: fContact2Phone,
           contact3Name: fContact3Name, contact3Phone: fContact3Phone,
+          contact4Name: fContact4Name, contact4Phone: fContact4Phone,
           memo: fMemo
         }
       }, { merge: true });
@@ -458,56 +463,60 @@ export default function App() {
   if (isCalendarView && !showTrash) displaySchedules = calendarFilteredSchedules;
 
   // ----------------------------------------------------
-  // 모바일 전용: '집 (우리집 정보)' 화면 렌더링
+  // 모바일 전용: '집 (우리집 정보)' 화면 렌더링 - 압축된 레이아웃
   // ----------------------------------------------------
   const renderFamilyInfoView = () => (
-    <div className="space-y-4 md:space-y-6 pb-6 mt-2">
+    <div className="space-y-3 md:space-y-4 pb-6 mt-1">
       {/* 1. 집 주소 */}
-      <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         <h3 className="text-[#508A12] font-black text-[1.4rem] md:text-2xl mb-4 flex items-center gap-2">
-           <MapPin size={28} strokeWidth={2.5}/> 우리집 주소
+      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
+         <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
+           <MapPin size={24} strokeWidth={2.5}/> 우리집 주소
          </h3>
-         <p className="text-[1.6rem] md:text-3xl font-black text-slate-800 dark:text-white break-keep leading-snug">
+         {/* 글자 크기를 줄여 2줄 이내로 깔끔하게 떨어지도록 유도 */}
+         <p className="text-[clamp(1.2rem,5vw,1.5rem)] md:text-2xl font-black text-slate-800 dark:text-white break-keep leading-snug">
            {familyInfo?.address || '아직 등록된 주소가 없습니다.\n(PC에서 입력해주세요)'}
          </p>
       </div>
       
       {/* 2. 원터치 가족 연락처 */}
-      <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         <h3 className="text-[#508A12] font-black text-[1.4rem] md:text-2xl mb-4 flex items-center gap-2">
-           <Phone size={28} strokeWidth={2.5}/> 바로 전화걸기
+      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
+         <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
+           <Phone size={24} strokeWidth={2.5}/> 바로 전화걸기
          </h3>
-         <div className="space-y-3 md:space-y-4">
-           {[1,2,3].map(num => {
+         <div className="space-y-2.5 md:space-y-3">
+           {/* 연락처 4개까지 지원 */}
+           {[1,2,3,4].map(num => {
               const name = familyInfo?.[`contact${num}Name`];
               const phone = familyInfo?.[`contact${num}Phone`];
               if (!name && !phone) return null;
               
               return (
-                <a key={num} href={`tel:${phone}`} className="flex items-center justify-between p-5 md:p-6 bg-[#508A12] hover:bg-[#3E6B0E] text-white rounded-[1.5rem] active:scale-95 transition-all shadow-md group">
+                <a key={num} href={`tel:${phone}`} className="flex items-center justify-between p-3.5 md:p-4 bg-[#508A12] hover:bg-[#3E6B0E] text-white rounded-[1.2rem] md:rounded-[1.5rem] active:scale-95 transition-all shadow-md group">
                    <div className="flex flex-col">
-                     <span className="text-[1.6rem] md:text-3xl font-black">{name}</span>
-                     <span className="text-lg text-white/80 font-bold mt-1">{phone}</span>
+                     {/* 이름 크기 약간 축소 */}
+                     <span className="text-[1.4rem] md:text-2xl font-black">{name}</span>
+                     <span className="text-base md:text-lg text-white/90 font-bold mt-0.5">{phone}</span>
                    </div>
-                   <div className="bg-white/20 p-4 rounded-full group-active:bg-white/30 transition-colors">
-                     <Phone size={36} className="text-white" fill="currentColor" />
+                   <div className="bg-white/20 p-2.5 md:p-3 rounded-full group-active:bg-white/30 transition-colors">
+                     <Phone size={28} className="text-white" fill="currentColor" />
                    </div>
                 </a>
               )
            })}
-           {(!familyInfo?.contact1Name && !familyInfo?.contact2Name && !familyInfo?.contact3Name) && (
-             <p className="text-slate-500 font-bold text-lg md:text-xl">등록된 연락처가 없습니다.</p>
+           {(!familyInfo?.contact1Name && !familyInfo?.contact2Name && !familyInfo?.contact3Name && !familyInfo?.contact4Name) && (
+             <p className="text-slate-500 font-bold text-base md:text-lg">등록된 연락처가 없습니다.</p>
            )}
          </div>
       </div>
 
       {/* 3. 생일 및 가족 메모 */}
-      <div className="bg-white dark:bg-slate-800 p-6 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         <h3 className="text-[#508A12] font-black text-[1.4rem] md:text-2xl mb-4 flex items-center gap-2">
-           <Info size={28} strokeWidth={2.5}/> 기억할 정보 (가족 생일 등)
+      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
+         {/* 타이틀 축소 */}
+         <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
+           <Info size={24} strokeWidth={2.5}/> 기억할 정보
          </h3>
-         <div className="bg-slate-50 dark:bg-slate-700 p-5 md:p-6 rounded-[1.5rem]">
-           <p className="text-[1.3rem] md:text-2xl font-bold text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
+         <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-[1.2rem] md:rounded-[1.5rem]">
+           <p className="text-[1.1rem] md:text-xl font-bold text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
              {familyInfo?.memo || '등록된 내용이 없습니다.'}
            </p>
          </div>
@@ -575,7 +584,7 @@ export default function App() {
   };
 
   // ----------------------------------------------------
-  // PC 전용: '가족 정보 입력' 폼 (isFamilyView 상태일 때 표시)
+  // PC 전용: '가족 정보 입력' 폼 (isFamilyView 상태일 때 표시) - 4명 지원
   // ----------------------------------------------------
   const renderFamilyInfoForm = () => (
     <form onSubmit={handleSaveFamilyInfo} className="space-y-4 md:space-y-6">
@@ -595,10 +604,10 @@ export default function App() {
       </div>
 
       <div className="space-y-3">
-        <label className="block text-slate-400 font-black text-sm ml-2">가족 연락처 (원터치 다이얼)</label>
-        {[1,2,3].map(num => {
-          const nameValue = num === 1 ? fContact1Name : num === 2 ? fContact2Name : fContact3Name;
-          const phoneValue = num === 1 ? fContact1Phone : num === 2 ? fContact2Phone : fContact3Phone;
+        <label className="block text-slate-400 font-black text-sm ml-2">가족 연락처 최대 4명 (원터치 다이얼)</label>
+        {[1,2,3,4].map(num => {
+          const nameValue = num === 1 ? fContact1Name : num === 2 ? fContact2Name : num === 3 ? fContact3Name : fContact4Name;
+          const phoneValue = num === 1 ? fContact1Phone : num === 2 ? fContact2Phone : num === 3 ? fContact3Phone : fContact4Phone;
           
           return (
           <div key={num} className="flex gap-2">
@@ -609,6 +618,7 @@ export default function App() {
                 if(num===1) setFContact1Name(e.target.value);
                 if(num===2) setFContact2Name(e.target.value);
                 if(num===3) setFContact3Name(e.target.value);
+                if(num===4) setFContact4Name(e.target.value);
               }} 
               placeholder="이름 (예: 큰아들)" maxLength={15}
               className="w-1/3 p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold shadow-inner text-base" 
@@ -620,6 +630,7 @@ export default function App() {
                 if(num===1) setFContact1Phone(e.target.value);
                 if(num===2) setFContact2Phone(e.target.value);
                 if(num===3) setFContact3Phone(e.target.value);
+                if(num===4) setFContact4Phone(e.target.value);
               }} 
               placeholder="전화번호 (예: 010-1234-5678)" maxLength={20}
               className="flex-1 p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold shadow-inner text-base" 
@@ -629,7 +640,7 @@ export default function App() {
       </div>
 
       <div className="space-y-2">
-         <label className="block text-slate-400 font-black text-sm ml-2">기억할 정보 (가족 생일, 비밀번호 등)</label>
+         <label className="block text-slate-400 font-black text-sm ml-2">기억할 정보</label>
          <textarea 
           value={fMemo} onChange={(e) => setFMemo(e.target.value)} 
           placeholder="어머니께서 꼭 기억하셔야 할 내용들을 메모해 주세요." rows={5} maxLength={1000}
@@ -804,29 +815,28 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
-          {/* 글자 크기 가변 범위(clamp)를 상향 조정하여 공간이 생기면 훨씬 크게 보이도록 함 */}
+        <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-1">
+          {/* 상단 날짜 폰트 사이즈를 더 키울 수 있도록 넓은 범위(clamp) 허용 */}
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(16px,6vw,40px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,6.5vw,40px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
           
-          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
-            {/* 집(가족) 화면이 아닐 때만 [집] 버튼 표시 */}
+          <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
             {!isFamilyView && (
               <button 
                 onClick={() => {
                   setIsFamilyView(true);
                   setIsCalendarView(false);
                 }}
-                className="flex items-center justify-center min-w-[40px] px-3.5 py-2 md:px-5 md:py-2.5 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-sm border border-[#508A12]/20"
+                className="flex items-center justify-center min-w-[36px] px-3.5 py-1.5 md:px-5 md:py-2.5 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-sm border border-[#508A12]/20"
               >
                 집
               </button>
             )}
 
-            {/* 집 화면일 때는 [홈], 그 외에는 상태에 따라 [홈/달력] 표시 */}
+            {/* 글자를 "홈으로" -> "홈", "달력보기" -> "달력" 으로 축소하여 여백 확보 */}
             <button 
               onClick={() => {
                 if (isFamilyView) {
@@ -837,7 +847,7 @@ export default function App() {
                   setCalendarMonth(new Date());
                 }
               }}
-              className="flex items-center justify-center min-w-[40px] px-3.5 py-2 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center min-w-[36px] px-3.5 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-md"
             >
               {isFamilyView ? '홈' : isCalendarView ? '홈' : '달력'}
             </button>
@@ -918,7 +928,7 @@ export default function App() {
 
                        {item.content && (
                          <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                           {/* line-clamp-2 클래스를 적용하여 메모가 최대 2줄까지만 나오고 넘치면 ... 처리됨 */}
+                           {/* 메모가 넘치면 말줄임표 처리되도록 line-clamp-2 유지 */}
                            <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
                          </div>
                        )}
