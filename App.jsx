@@ -1,10 +1,10 @@
 /**
  * [버전 정보]
- * v1.6.0 (2024-05-24)
- * - CSS 먹통 현상 완벽 해결: Tailwind CDN 자동 주입 로직 탑재
- * - PC/모바일 하이브리드 UX: PC에서는 2단 분할(좌 입력/우 목록), 모바일은 앱 스타일 레이아웃 적용
- * - 디자인 고도화: '건강 매니저' 스타일의 고해상도 그린 테마 유지 및 애니메이션 최적화
- * - 데이터 처리 안정성: 저장 중 중복 클릭 방지(isSaving) 및 오류 예외 처리 강화
+ * v1.7.0 (2024-05-24)
+ * - 순수 일정 앱 UX 개편: 불필요한 하단 탭 메뉴 제거 및 모바일 플로팅 추가 버튼 적용
+ * - 상단 헤더 개선: 사용자 아이콘을 '달력'으로 변경하고 오늘 날짜/요일을 명확하게 강조 표시
+ * - 기능 추가: 기존 일정의 내용을 변경할 수 있는 '수정' 기능 탑재
+ * - 디자인 고도화: 일정 목록에서 수정/삭제 버튼 접근성 개선 및 시니어 맞춤 가독성 최적화
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -17,6 +17,7 @@ import {
   onSnapshot, 
   deleteDoc, 
   doc, 
+  updateDoc,
   serverTimestamp 
 } from 'firebase/firestore';
 import { 
@@ -34,13 +35,10 @@ import {
   RefreshCw,
   MapPin,
   X,
-  Home,
-  BarChart3,
-  BrainCircuit,
   Settings,
   CalendarDays,
   Info,
-  Stethoscope
+  Edit2
 } from 'lucide-react';
 
 // [중요] Vercel 환경에서 CSS가 깨지는 현상을 방지하기 위한 강제 스타일 주입 로직
@@ -100,9 +98,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [activeTab, setActiveTab] = useState('홈');
 
-  // 입력 폼 상태
+  // 입력 폼 상태 (추가 및 수정 공용)
+  const [editingId, setEditingId] = useState(null); // 수정 중인 일정 ID
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newLocation, setNewLocation] = useState('');
@@ -112,6 +110,11 @@ function App() {
   const [isRange, setIsRange] = useState(false);
 
   const todayStr = new Date().toISOString().split('T')[0];
+  
+  // 상단에 표시될 전체 날짜 문자열 (예: 2026년 3월 27일 금요일)
+  const fullDateDisplay = new Date().toLocaleDateString('ko-KR', { 
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
+  });
 
   useEffect(() => {
     if (!auth) return;
@@ -140,21 +143,38 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  const handleAddSchedule = async (e) => {
+  // 폼 초기화 헬퍼 함수
+  const resetForm = () => {
+    setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); 
+    setNewStartDate(new Date().toISOString().split('T')[0]); setNewEndDate(''); 
+    setIsRange(false); setEditingId(null);
+  };
+
+  const handleAddOrEditSchedule = async (e) => {
     e.preventDefault();
     if (!newTitle.trim() || !db || isSaving) return;
     setIsSaving(true);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), {
+      const scheduleData = {
         title: newTitle, content: newContent, location: newLocation, time: newTime, 
         startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate,
-        createdAt: serverTimestamp(), author: user.uid
-      });
-      // 폼 초기화
-      setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); setIsRange(false);
+        author: user.uid
+      };
+
+      if (editingId) {
+        // 기존 일정 수정
+        scheduleData.updatedAt = serverTimestamp();
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', editingId), scheduleData);
+      } else {
+        // 새 일정 추가
+        scheduleData.createdAt = serverTimestamp();
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), scheduleData);
+      }
+      
+      resetForm();
       setShowAddForm(false);
     } catch (e) { 
-      console.error("Add Fail:", e); 
+      console.error("Save Fail:", e); 
     } finally {
       setIsSaving(false);
     }
@@ -162,18 +182,41 @@ function App() {
 
   const handleDelete = async (id) => {
     if (!db) return;
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
-    } catch (e) { console.error("Delete Fail:", e); }
+    if (confirm("이 일정을 정말 삭제하시겠습니까?")) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
+        if (editingId === id) { resetForm(); setShowAddForm(false); }
+      } catch (e) { console.error("Delete Fail:", e); }
+    }
+  };
+
+  const handleEditClick = (item) => {
+    setNewTitle(item.title || '');
+    setNewContent(item.content || '');
+    setNewLocation(item.location || '');
+    setNewTime(item.time || '');
+    setNewStartDate(item.startDate);
+    
+    if (item.startDate !== item.endDate) {
+      setIsRange(true);
+      setNewEndDate(item.endDate);
+    } else {
+      setIsRange(false);
+      setNewEndDate('');
+    }
+    
+    setEditingId(item.id);
+    setShowAddForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // PC 환경을 위해 위로 스크롤
   };
 
   const categorizedSchedules = useMemo(() => {
     return schedules.filter(s => (s.endDate || s.startDate) >= todayStr);
   }, [schedules, todayStr]);
 
-  // 공통 입력 폼 컴포넌트 (PC 우측, 모바일 팝업에서 동일하게 사용)
+  // 공통 입력 폼 컴포넌트
   const ScheduleForm = ({ onCancel }) => (
-    <form onSubmit={handleAddSchedule} className="space-y-6">
+    <form onSubmit={handleAddOrEditSchedule} className="space-y-6">
       <div className="space-y-3">
         <label className="block text-slate-400 font-black text-sm uppercase tracking-[0.2em] ml-2">무엇을 하시나요?</label>
         <input 
@@ -200,7 +243,7 @@ function App() {
          <label className="text-xs font-black text-slate-400 ml-2">메모</label>
          <textarea 
           value={newContent} onChange={(e) => setNewContent(e.target.value)} 
-          placeholder="주의사항을 적어주세요" rows={3}
+          placeholder="상세 내용을 적어주세요" rows={3}
           className="w-full p-5 md:p-6 bg-slate-50 rounded-[1.5rem] border-none font-bold text-lg shadow-inner resize-none" 
         />
       </div>
@@ -229,8 +272,8 @@ function App() {
         {onCancel && (
           <button 
             type="button" 
-            onClick={onCancel} 
-            className="flex-1 py-5 md:py-6 bg-slate-100 text-slate-500 rounded-[2rem] font-black text-lg md:text-xl active:scale-95 transition-all"
+            onClick={() => { resetForm(); onCancel(); }} 
+            className="flex-1 py-5 md:py-6 bg-slate-100 text-slate-500 rounded-[2rem] font-black text-lg md:text-xl active:scale-95 transition-all hover:bg-slate-200"
           >
             취소
           </button>
@@ -238,9 +281,9 @@ function App() {
         <button 
           type="submit" 
           disabled={isSaving}
-          className="flex-[2] py-5 md:py-6 bg-[#8DC63F] text-white rounded-[2rem] font-black text-lg md:text-xl shadow-xl shadow-[#8DC63F]/30 active:scale-95 transition-all disabled:opacity-50"
+          className="flex-[2] py-5 md:py-6 bg-[#8DC63F] text-white rounded-[2rem] font-black text-lg md:text-xl shadow-xl shadow-[#8DC63F]/30 active:scale-95 transition-all disabled:opacity-50 hover:bg-[#7AB12E]"
         >
-          {isSaving ? '저장 중...' : '일정 저장하기'}
+          {isSaving ? '저장 중...' : (editingId ? '일정 수정완료' : '새 일정 등록')}
         </button>
       </div>
     </form>
@@ -266,45 +309,52 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#F4F7F2] text-slate-900 font-sans pb-32 md:pb-10 overflow-x-hidden">
-      {/* 상단 프로필 및 앱 바 */}
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-40">
-        <div className="px-6 py-4 flex items-center justify-between max-w-6xl mx-auto">
+      {/* 상단 프로필 및 앱 바 (달력 아이콘 + 날짜 강조) */}
+      <header className="bg-white border-b border-slate-100 shadow-sm sticky top-0 z-40">
+        <div className="px-6 py-5 flex flex-col md:flex-row md:items-center justify-between max-w-6xl mx-auto gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center border-4 border-white shadow-sm">
-               <span className="text-orange-600 font-black text-xl">성</span>
+            <div className="w-14 h-14 bg-[#F0F7E6] rounded-full flex items-center justify-center border border-[#8DC63F]/20 shadow-sm">
+               <CalendarDays className="text-[#8DC63F]" size={28} />
             </div>
             <div>
-              <h1 className="text-2xl font-black flex items-center gap-1 text-[#4A6D00]">
-                나의 일정 <span className="text-slate-300 font-bold text-xs bg-slate-50 px-2 py-1 rounded-md">v1.6.0</span>
+              <h1 className="text-2xl font-black flex items-center gap-2 text-[#4A6D00] tracking-tighter">
+                나의 일정 <span className="text-slate-400 font-bold text-xs bg-slate-50 border px-2 py-0.5 rounded-md">v1.7.0</span>
               </h1>
+              <p className="text-slate-800 font-black text-[1.1rem] mt-1 tracking-tight">{fullDateDisplay}</p>
             </div>
           </div>
-          <button className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 hover:text-[#8DC63F] transition-all">
+          <button className="hidden md:flex w-10 h-10 bg-slate-50 rounded-xl items-center justify-center text-slate-400 hover:text-[#8DC63F] transition-all">
             <Settings size={20} />
           </button>
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-6 flex flex-col lg:flex-row gap-8">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-8 flex flex-col lg:flex-row gap-8">
         
         {/* PC 전용: 좌측 고정 입력창 */}
         <aside className="hidden lg:block w-[400px] flex-shrink-0">
-          <div className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.05)] sticky top-28 border border-slate-50">
-            <h2 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-2">
-               <Plus className="text-[#8DC63F]" size={28} strokeWidth={3} /> PC에서 빠른 입력
-            </h2>
-            <ScheduleForm />
+          <div className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.05)] sticky top-[140px] border border-slate-50">
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                 {editingId ? <Edit2 className="text-amber-500" size={28} strokeWidth={3} /> : <Plus className="text-[#8DC63F]" size={28} strokeWidth={3} />} 
+                 {editingId ? '일정 수정' : '새 일정 등록'}
+              </h2>
+              {editingId && (
+                <button onClick={resetForm} className="text-sm font-bold text-slate-400 hover:text-slate-600">취소</button>
+              )}
+            </div>
+            <ScheduleForm onCancel={editingId ? resetForm : null} />
           </div>
         </aside>
 
         {/* 우측/모바일 메인: 일정 목록 영역 */}
         <main className="flex-1 w-full">
-          {/* 메인 비주얼 카드: 오늘/예정된 핵심 일정 */}
+          {/* 메인 비주얼 카드: 오늘 및 주요 일정 */}
           <section className="bg-gradient-to-br from-[#8DC63F] to-[#72A632] rounded-[3rem] p-8 md:p-10 shadow-[0_20px_40px_-10px_rgba(141,198,63,0.3)] text-white mb-10 relative overflow-hidden transition-all">
             <div className="absolute right-0 top-0 w-40 h-40 bg-white/10 rounded-full -translate-y-12 translate-x-12 blur-3xl" />
             <div className="flex justify-between items-center mb-8 relative z-10">
               <h2 className="text-2xl font-black opacity-95 tracking-tight flex items-center gap-2">
-                진료 및 주요 일정
+                오늘 및 주요 일정
               </h2>
             </div>
 
@@ -319,9 +369,16 @@ function App() {
                           <span className="flex items-center gap-1.5 bg-white/15 px-3 py-1 rounded-xl backdrop-blur-sm"><Clock size={20} /> {item.time || '시간미정'}</span>
                         </div>
                      </div>
-                     <div className="bg-white text-[#72A632] px-4 md:px-5 py-3 rounded-[1.5rem] text-xl md:text-2xl font-black shadow-lg flex flex-col items-center flex-shrink-0">
-                       <span className="text-xs md:text-sm opacity-60 leading-none mb-1">{item.startDate.slice(5, 7)}월</span>
-                       {item.startDate.slice(8, 10)}
+                     <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                       <div className="bg-white text-[#72A632] px-4 md:px-5 py-3 rounded-[1.5rem] text-xl md:text-2xl font-black shadow-lg flex flex-col items-center">
+                         <span className="text-xs md:text-sm opacity-60 leading-none mb-1">{item.startDate.slice(5, 7)}월</span>
+                         {item.startDate.slice(8, 10)}
+                       </div>
+                       {/* 편집/삭제 액션 그룹 */}
+                       <div className="flex gap-2 mt-2">
+                         <button onClick={() => handleEditClick(item)} className="p-2 bg-white/20 rounded-full hover:bg-white/40 transition-all"><Edit2 size={18} /></button>
+                         <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-400/80 rounded-full hover:bg-red-500 transition-all"><Trash2 size={18} /></button>
+                       </div>
                      </div>
                   </div>
                   {item.content && (
@@ -333,22 +390,15 @@ function App() {
               )) : (
                 <div className="py-12 md:py-16 text-center opacity-50">
                   <CalendarDays size={64} className="mx-auto mb-4" />
-                  <p className="text-xl md:text-2xl font-black italic">새로운 일정을 등록해 주세요</p>
+                  <p className="text-xl md:text-2xl font-black italic">다가오는 주요 일정이 없습니다</p>
                 </div>
               )}
             </div>
           </section>
 
-          {/* 하단 리스트 섹션 */}
+          {/* 하단 리스트 섹션: 전체 예정 일정 */}
           <div className="flex justify-between items-center mb-6 px-2">
-             <h3 className="text-2xl font-black text-slate-800">예정된 일지</h3>
-             {/* 모바일에서만 보이는 상세입력 버튼 */}
-             <button 
-               onClick={() => setShowAddForm(true)}
-               className="lg:hidden bg-[#E9F3D5] text-[#5D8C00] px-6 py-2 rounded-full font-black text-lg shadow-sm active:scale-95 transition-all flex items-center gap-1"
-             >
-               새 일정 <Plus size={20} strokeWidth={3} />
-             </button>
+             <h3 className="text-2xl font-black text-slate-800">예정된 전체 일정</h3>
           </div>
 
           {loading ? (
@@ -358,8 +408,8 @@ function App() {
           ) : (
             <div className="grid grid-cols-1 gap-5">
               {categorizedSchedules.slice(2).map((item) => (
-                <div key={item.id} className="bg-white rounded-[2rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.02)] border border-slate-100 flex justify-between items-center group transition-all hover:shadow-lg">
-                  <div className="flex-1">
+                <div key={item.id} className="bg-white rounded-[2rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.02)] border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center group transition-all hover:shadow-lg gap-4">
+                  <div className="flex-1 w-full">
                      <div className="flex items-center gap-3 mb-2">
                        <span className="text-[#8DC63F] font-black text-sm md:text-base tracking-tighter bg-[#F0F7E6] px-3 py-1 rounded-lg">
                          {item.startDate.slice(5).replace('-', '월 ')}일
@@ -369,10 +419,16 @@ function App() {
                      <h4 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-2 tracking-tight">{item.title}</h4>
                      {item.location && <p className="text-slate-400 font-bold text-lg md:text-xl flex items-center gap-1 mt-2"><MapPin size={18} className="text-[#8DC63F]/60"/> {item.location}</p>}
                   </div>
-                  <div className="flex items-center gap-2 md:gap-4 pl-4">
+                  <div className="flex items-center gap-3 self-end md:self-center">
+                    <button 
+                      onClick={() => handleEditClick(item)}
+                      className="p-3 bg-amber-50 text-amber-500 rounded-full hover:bg-amber-500 hover:text-white transition-all shadow-sm active:scale-90"
+                    >
+                      <Edit2 size={24} />
+                    </button>
                     <button 
                       onClick={() => handleDelete(item.id)}
-                      className="p-3 bg-red-50 text-red-300 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90"
+                      className="p-3 bg-red-50 text-red-400 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90"
                     >
                       <Trash2 size={24} />
                     </button>
@@ -381,7 +437,7 @@ function App() {
               ))}
               {categorizedSchedules.length <= 2 && categorizedSchedules.length > 0 && (
                 <div className="py-16 text-center text-slate-300 font-black text-xl italic">
-                  예정된 일정이 더 없습니다
+                  더 이상 예정된 일정이 없습니다
                 </div>
               )}
             </div>
@@ -389,38 +445,29 @@ function App() {
         </main>
       </div>
 
-      {/* 모바일 하단 내비게이션 바 (PC에서는 숨김) */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 pb-8 pt-4 px-6 z-40 flex justify-between items-center shadow-[0_-10px_30px_rgba(0,0,0,0.03)]">
-         {[
-           { name: '홈', icon: Home, active: activeTab === '홈' },
-           { name: '일정', icon: CalendarDays, active: activeTab === '일정' },
-           { name: '수치', icon: BarChart3, active: activeTab === '수치' },
-           { name: '약', icon: Stethoscope, active: activeTab === '약' },
-           { name: 'AI', icon: BrainCircuit, active: activeTab === 'AI' },
-         ].map((tab) => (
-           <button 
-            key={tab.name} 
-            onClick={() => setActiveTab(tab.name)}
-            className={`flex flex-col items-center gap-1 transition-all ${tab.active ? 'text-[#72A632] scale-110' : 'text-slate-400 hover:text-slate-500'}`}
-           >
-              <div className={`p-2 rounded-xl ${tab.active ? 'bg-[#F0F7E6]' : ''}`}>
-                <tab.icon size={26} strokeWidth={tab.active ? 2.5 : 2} />
-              </div>
-              <span className="text-[11px] font-black tracking-tight">{tab.name}</span>
-           </button>
-         ))}
-      </nav>
+      {/* 모바일 하단 플로팅 추가 버튼 (불필요한 탭 네비게이션 대체) */}
+      {!showAddForm && (
+        <button 
+          onClick={() => { resetForm(); setShowAddForm(true); }}
+          className="lg:hidden fixed bottom-8 right-8 w-[4.5rem] h-[4.5rem] bg-[#8DC63F] text-white rounded-full flex items-center justify-center shadow-[0_10px_30px_rgba(141,198,63,0.5)] active:scale-90 transition-all z-40 hover:bg-[#7AB12E]"
+        >
+          <Plus size={36} strokeWidth={3} />
+        </button>
+      )}
 
-      {/* 모바일 일정 추가 모달 (PC에서는 좌측에 폼이 있으므로 모바일에서만 작동) */}
+      {/* 모바일 일정 폼 팝업 (추가/수정 공용) */}
       {showAddForm && (
         <div className="lg:hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-end justify-center transition-all">
           <div className="bg-white w-full max-w-xl rounded-t-[3rem] p-8 pb-12 animate-in slide-in-from-bottom-20 duration-300 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8 sticky top-0 bg-white z-10 py-2">
-               <h2 className="text-2xl font-black text-slate-800">새 일정 등록하기</h2>
-               <button onClick={() => setShowAddForm(false)} className="p-3 bg-slate-100 rounded-full text-slate-500 active:scale-90 transition-all"><X size={24}/></button>
+               <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                 {editingId ? <Edit2 className="text-amber-500" size={24} /> : <Plus className="text-[#8DC63F]" size={24} />} 
+                 {editingId ? '일정 수정하기' : '새 일정 등록하기'}
+               </h2>
+               <button onClick={() => { resetForm(); setShowAddForm(false); }} className="p-3 bg-slate-100 rounded-full text-slate-500 active:scale-90 transition-all"><X size={24}/></button>
             </div>
             {/* 공용 입력 폼 불러오기 */}
-            <ScheduleForm onCancel={() => setShowAddForm(false)} />
+            <ScheduleForm onCancel={() => { resetForm(); setShowAddForm(false); }} />
           </div>
         </div>
       )}
