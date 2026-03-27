@@ -1,7 +1,7 @@
 /**
  * [버전 정보]
- * v1.15.0 (2026-03-27)
- * - 달력 크기 및 폰트 대폭 확대: 이전 버전에서 축소되었던 달력의 요일, 날짜 폰트 크기와 버튼 높이를 다시 큼직하게 복구하여 시인성 극대화
+ * v1.16.0 (2026-03-28)
+ * - 달력 상하 폭 최적화: 달력 위아래 여백과 날짜 칸 높이를 줄여, 하단의 일정이 스크롤 없이도 한눈에 더 잘 들어오도록 개선
  * - 가독성 및 명도 대비 극대화: 딥그린(#508A12) 테마 유지
  * - 모바일 환경 최적화: 시니어 사용자를 위해 터치 영역과 글씨를 시원하게 키움
  */
@@ -295,7 +295,7 @@ function App() {
     displaySchedules = calendarFilteredSchedules;
   }
 
-  // 달력 렌더링 로직 (크기를 시원하게 대폭 확대)
+  // 달력 렌더링 로직
   const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -309,19 +309,19 @@ function App() {
     }
 
     return (
-      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[2.5rem] shadow-sm mb-6 border border-slate-100 dark:border-slate-700">
-         <div className="flex justify-between items-center mb-6 md:mb-8">
-           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={36} className="dark:text-white"/></button>
-           <h2 className="text-3xl md:text-5xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
-           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={36} className="dark:text-white"/></button>
+      <div className="bg-white dark:bg-slate-800 p-3 md:p-5 rounded-[2rem] shadow-sm mb-4 border border-slate-100 dark:border-slate-700">
+         <div className="flex justify-between items-center mb-3 md:mb-5">
+           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={28} className="dark:text-white"/></button>
+           <h2 className="text-2xl md:text-4xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
+           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
          </div>
-         {/* 요일 크기를 큼직하게 확대 */}
-         <div className="grid grid-cols-7 gap-2 mb-4 md:mb-6 text-center">
+         {/* 요일 크기를 큼직하게 유지하되 상하 여백 축소 */}
+         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2 md:mb-3 text-center">
            {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
-             <div key={i} className={`text-xl md:text-3xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
+             <div key={i} className={`text-lg md:text-2xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
            ))}
          </div>
-         <div className="grid grid-cols-7 gap-2">
+         <div className="grid grid-cols-7 gap-1 md:gap-2">
            {days.map((dateStr, idx) => {
              if (!dateStr) return <div key={`empty-${idx}`} />;
              const dayNum = parseInt(dateStr.split('-')[2]);
@@ -333,17 +333,17 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[1.2rem] md:rounded-[1.5rem] h-[4.5rem] md:h-[6.5rem] transition-all relative overflow-hidden ${
+                 className={`flex flex-col items-center justify-center rounded-[1rem] md:rounded-[1.2rem] h-[3.5rem] md:h-[5.5rem] transition-all relative overflow-hidden ${
                    isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
                    : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-2xl md:text-4xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-xl md:text-3xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
                    {dayNum}
                  </span>
                  {hasSchedule && (
-                   <div className={`w-2.5 h-2.5 md:w-3.5 md:h-3.5 rounded-full mt-1 md:mt-2 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
+                   <div className={`w-1.5 h-1.5 md:w-2.5 md:h-2.5 rounded-full mt-0.5 md:mt-1 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
                  )}
                </button>
              );
