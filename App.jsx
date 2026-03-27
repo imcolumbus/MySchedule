@@ -1,11 +1,10 @@
 /**
  * [버전 정보]
- * v1.8.0 (2024-05-24)
- * - 오류 수정: 한국 시간대(KST)와 UTC 시차로 인한 날짜/텍스트 입력 어긋남 현상 완벽 해결
- * - 모바일 전용 모드: 모바일 환경에서는 수정/삭제/등록 기능 차단 (순수 뷰어 모드)
- * - 상단 헤더 개편: 사용자 아이콘 제거 및 오늘 연도, 월, 일, 요일 폰트 사이즈 대폭 확대
- * - 레이아웃 간소화: 불필요한 '오늘 및 주요 일정' 분리 섹션 제거 및 단일 목록으로 통합
- * - 일정 가독성 강화: 일자와 요일 순으로 크게 보이도록 초록색 태그 형태 배치
+ * v1.9.0 (2024-05-24)
+ * - 입력 폼 버그 수정: 입력 중 커서가 '무엇을 하시나요(제목)'로 강제 이동(포커스 스틸)하여 오타가 발생하는 React 렌더링 오류 완벽 해결
+ * - 휴지통 및 복구 기능(PC 전용): 일정을 바로 삭제하지 않고 휴지통으로 이동 후 복구하거나 영구 삭제할 수 있는 기능 추가
+ * - 모바일 전용 모드 유지: 모바일 환경에서는 수정/삭제/등록 기능 차단 (순수 뷰어 모드)
+ * - UI 개선: 휴지통 화면 토글 기능 및 상태에 따른 액션 버튼(수정/삭제 vs 복구/영구삭제) 전환
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -37,7 +36,9 @@ import {
   Settings,
   CalendarDays,
   Info,
-  Edit2
+  Edit2,
+  ArchiveRestore,
+  Trash
 } from 'lucide-react';
 
 // 강제 스타일 주입 로직 (Vercel 호환성)
@@ -89,7 +90,7 @@ const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-schedule-app';
 
-// 날짜 유틸리티: UTC 오차를 막기 위한 로컬 타임 문자열 생성기
+// 날짜 유틸리티
 const getLocalDateString = (dateObj) => {
   const year = dateObj.getFullYear();
   const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -97,7 +98,6 @@ const getLocalDateString = (dateObj) => {
   return `${year}-${month}-${day}`;
 };
 
-// "3월 27일 금요일" 포맷으로 변환하는 유틸리티
 const formatDateWithDay = (dateStr) => {
   if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
@@ -111,6 +111,7 @@ function App() {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [showTrash, setShowTrash] = useState(false); // 휴지통 보기 상태
 
   // 로컬 기준 오늘 날짜 문자열
   const todayStr = getLocalDateString(new Date());
@@ -171,7 +172,8 @@ function App() {
       const scheduleData = {
         title: newTitle, content: newContent, location: newLocation, time: newTime, 
         startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate,
-        author: user.uid
+        author: user.uid,
+        isDeleted: false // 휴지통 상태 (기본값: false)
       };
 
       if (editingId) {
@@ -189,12 +191,31 @@ function App() {
     }
   };
 
-  const handleDelete = async (id) => {
+  // 휴지통으로 이동 (Soft Delete)
+  const handleSoftDelete = async (id) => {
     if (!db) return;
-    if (confirm("이 일정을 삭제하시겠습니까?")) {
+    if (confirm("이 일정을 휴지통으로 이동하시겠습니까?")) {
+      try {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: true });
+        if (editingId === id) resetForm();
+      } catch (e) { console.error("Trash Fail:", e); }
+    }
+  };
+
+  // 휴지통에서 복구
+  const handleRestore = async (id) => {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: false });
+    } catch (e) { console.error("Restore Fail:", e); }
+  };
+
+  // 영구 삭제 (Hard Delete)
+  const handlePermanentDelete = async (id) => {
+    if (!db) return;
+    if (confirm("이 일정을 완전히 삭제하시겠습니까? 복구할 수 없습니다.")) {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
-        if (editingId === id) resetForm();
       } catch (e) { console.error("Delete Fail:", e); }
     }
   };
@@ -211,15 +232,24 @@ function App() {
       setIsRange(false); setNewEndDate('');
     }
     setEditingId(item.id);
+    setShowTrash(false); // 수정 시 활성 목록으로 전환
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const categorizedSchedules = useMemo(() => {
-    return schedules.filter(s => (s.endDate || s.startDate) >= todayStr);
+  // 활성 일정 필터링 (과거 제외, 삭제되지 않은 것)
+  const activeSchedules = useMemo(() => {
+    return schedules.filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr);
   }, [schedules, todayStr]);
 
-  // 공통 입력 폼 컴포넌트 (PC 우측 표시용)
-  const ScheduleForm = ({ onCancel }) => (
+  // 휴지통 일정 필터링
+  const trashedSchedules = useMemo(() => {
+    return schedules.filter(s => s.isDeleted);
+  }, [schedules]);
+
+  const displaySchedules = showTrash ? trashedSchedules : activeSchedules;
+
+  // 오타 방지를 위한 렌더링 헬퍼 함수 (컴포넌트 분리가 아닌 함수 반환으로 포커스 스틸 문제 해결)
+  const renderScheduleForm = (onCancel) => (
     <form onSubmit={handleAddOrEditSchedule} className="space-y-6">
       <div className="space-y-3">
         <label className="block text-slate-400 font-black text-sm uppercase tracking-[0.2em] ml-2">무엇을 하시나요?</label>
@@ -320,7 +350,7 @@ function App() {
             <div className="w-10 h-10 bg-[#F0F7E6] rounded-full flex items-center justify-center border border-[#8DC63F]/20 shadow-sm mr-1">
                <CalendarDays className="text-[#8DC63F]" size={20} />
             </div>
-            나의 일정 <span className="text-slate-400 font-bold text-xs bg-slate-50 border px-2 py-0.5 rounded-md ml-1">v1.8.0</span>
+            나의 일정 <span className="text-slate-400 font-bold text-xs bg-slate-50 border px-2 py-0.5 rounded-md ml-1">v1.9.0</span>
           </h1>
           {/* 어르신들이 보기 편하게 대폭 키운 날짜 표시 */}
           <p className="text-slate-900 font-black text-[2.2rem] md:text-5xl tracking-tight leading-snug">
@@ -343,68 +373,124 @@ function App() {
                 <button onClick={resetForm} className="text-sm font-bold text-slate-400 hover:text-slate-600">등록으로 돌아가기</button>
               )}
             </div>
-            <ScheduleForm onCancel={editingId ? resetForm : null} />
+            {/* 오타 방지를 위해 함수를 직접 호출 */}
+            {renderScheduleForm(editingId ? resetForm : null)}
           </div>
         </aside>
 
         {/* 우측/모바일 메인: 일정 목록 영역 */}
         <main className="flex-1 w-full">
+          {/* 하단 리스트 섹션: 전체 예정 일정 및 휴지통 토글 */}
+          <div className="flex justify-between items-center mb-8 px-2">
+             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+               {showTrash ? (
+                 <><Trash2 className="text-red-400" /> 휴지통 목록</>
+               ) : (
+                 '예정된 전체 일정'
+               )}
+             </h3>
+             
+             {/* PC 전용: 휴지통 토글 버튼 */}
+             <button 
+               onClick={() => { setShowTrash(!showTrash); setEditingId(null); }}
+               className={`hidden lg:flex px-5 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
+                 showTrash ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+               }`}
+             >
+               {showTrash ? '목록으로 돌아가기' : '휴지통 열기'}
+             </button>
+          </div>
+
           {loading ? (
             <div className="py-24 text-center">
               <RefreshCw className="animate-spin mx-auto text-[#8DC63F] opacity-50" size={56} />
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6">
-              {categorizedSchedules.map((item) => (
-                <div key={item.id} className="bg-white rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.03)] border border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all hover:shadow-lg gap-4">
+              {displaySchedules.map((item) => (
+                <div key={item.id} className={`bg-white rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-8 shadow-[0_5px_20px_rgba(0,0,0,0.03)] border flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all hover:shadow-lg gap-4 ${showTrash ? 'border-red-100 opacity-80' : 'border-slate-100'}`}>
                   <div className="flex-1 w-full">
-                     {/* 초록색 알약 형태의 날짜/요일 명확한 표시 */}
+                     {/* 초록색 알약 형태의 날짜/요일 명확한 표시 (휴지통일 때는 회색조) */}
                      <div className="mb-4">
-                       <span className="inline-block text-white bg-[#8DC63F] font-black text-lg md:text-xl tracking-tight px-4 py-2 rounded-[1rem] shadow-sm">
+                       <span className={`inline-block text-white font-black text-lg md:text-xl tracking-tight px-4 py-2 rounded-[1rem] shadow-sm ${showTrash ? 'bg-slate-400' : 'bg-[#8DC63F]'}`}>
                          {formatDateWithDay(item.startDate)}
                          {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
                      </div>
 
-                     <h4 className="text-2xl md:text-3xl font-black text-slate-800 leading-tight mb-3 tracking-tight break-keep">{item.title}</h4>
+                     <h4 className={`text-2xl md:text-3xl font-black leading-tight mb-3 tracking-tight break-keep ${showTrash ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                       {item.title}
+                     </h4>
                      
                      <div className="flex flex-wrap gap-3">
-                       {item.time && <p className="text-slate-500 font-bold text-[1.1rem] md:text-xl flex items-center gap-1.5"><Clock size={22} className="text-[#8DC63F]"/> {item.time}</p>}
-                       {item.location && <p className="text-slate-500 font-bold text-[1.1rem] md:text-xl flex items-center gap-1.5"><MapPin size={22} className="text-[#8DC63F]"/> {item.location}</p>}
+                       {item.time && <p className="text-slate-500 font-bold text-[1.1rem] md:text-xl flex items-center gap-1.5"><Clock size={22} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.time}</p>}
+                       {item.location && <p className="text-slate-500 font-bold text-[1.1rem] md:text-xl flex items-center gap-1.5"><MapPin size={22} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.location}</p>}
                      </div>
 
                      {item.content && (
-                       <div className="mt-5 bg-[#F4F7F2]/50 p-5 rounded-2xl border border-slate-50">
+                       <div className={`mt-5 p-5 rounded-2xl border ${showTrash ? 'bg-slate-50 border-slate-100' : 'bg-[#F4F7F2]/50 border-slate-50'}`}>
                          <p className="text-slate-600 font-bold text-lg md:text-xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
                        </div>
                      )}
                   </div>
 
-                  {/* PC에서만 보이는 수정/삭제 버튼 (모바일에서는 뷰어 모드이므로 숨김 처리) */}
+                  {/* PC에서만 보이는 작업 버튼 (모바일에서는 뷰어 모드이므로 숨김 처리) */}
                   <div className="hidden lg:flex flex-col gap-3 self-start">
-                    <button 
-                      onClick={() => handleEditClick(item)}
-                      className="p-4 bg-amber-50 text-amber-500 rounded-2xl hover:bg-amber-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                      title="수정"
-                    >
-                      <Edit2 size={24} />
-                      <span className="text-xs font-black">수정</span>
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(item.id)}
-                      className="p-4 bg-red-50 text-red-400 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
-                      title="삭제"
-                    >
-                      <Trash2 size={24} />
-                      <span className="text-xs font-black">삭제</span>
-                    </button>
+                    {!showTrash ? (
+                      <>
+                        <button 
+                          onClick={() => handleEditClick(item)}
+                          className="p-4 bg-amber-50 text-amber-500 rounded-2xl hover:bg-amber-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
+                          title="수정"
+                        >
+                          <Edit2 size={24} />
+                          <span className="text-xs font-black">수정</span>
+                        </button>
+                        <button 
+                          onClick={() => handleSoftDelete(item.id)}
+                          className="p-4 bg-red-50 text-red-400 rounded-2xl hover:bg-red-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
+                          title="휴지통으로"
+                        >
+                          <Trash2 size={24} />
+                          <span className="text-xs font-black">삭제</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button 
+                          onClick={() => handleRestore(item.id)}
+                          className="p-4 bg-emerald-50 text-emerald-500 rounded-2xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
+                          title="복구하기"
+                        >
+                          <ArchiveRestore size={24} />
+                          <span className="text-xs font-black">복구</span>
+                        </button>
+                        <button 
+                          onClick={() => handlePermanentDelete(item.id)}
+                          className="p-4 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-600 hover:text-white transition-all shadow-sm active:scale-90 flex flex-col items-center justify-center gap-1"
+                          title="영구 삭제"
+                        >
+                          <Trash size={24} />
+                          <span className="text-xs font-black">영구삭제</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
-              {categorizedSchedules.length === 0 && (
+              {displaySchedules.length === 0 && (
                 <div className="py-20 text-center">
-                  <CalendarDays size={80} className="mx-auto mb-6 text-slate-200" />
-                  <p className="text-slate-300 font-black text-2xl">등록된 일정이 없습니다</p>
+                  {showTrash ? (
+                    <>
+                      <Trash size={80} className="mx-auto mb-6 text-slate-200" />
+                      <p className="text-slate-300 font-black text-2xl">휴지통이 비어있습니다</p>
+                    </>
+                  ) : (
+                    <>
+                      <CalendarDays size={80} className="mx-auto mb-6 text-slate-200" />
+                      <p className="text-slate-300 font-black text-2xl">등록된 일정이 없습니다</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
