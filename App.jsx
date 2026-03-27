@@ -1,9 +1,9 @@
 /**
  * [버전 정보]
- * v1.18.0 (2026-03-28)
- * - 자동 화면 비율 최적화(Responsive Fluid Design): 모바일 화면의 가로/세로 크기(vw, vh)에 맞춰 상단 홈바와 달력 사이의 간격, 일정의 글자 크기가 자동으로 줄어들거나 커지도록 clamp 함수 적용
- * - 공간 활용 최적화: 일정 카드 내 텍스트 간격 및 메모 영역의 상하 여백 조절 유지
- * - 가독성 유지: 딥그린(#508A12) 테마 및 다크 모드 지원
+ * v1.19.0 (2026-03-28)
+ * - 달력 높이 최적화: 달력의 불필요한 상하 폭(vh 등)을 고정 픽셀(rem)로 변경하여 하단 일정이 가려지지 않도록 수정
+ * - 달력 연동 UX 강화: 달력에서 날짜 선택 시 하단에 "O월 O일의 일정"이라는 제목이 표시되며 해당 일정만 명확히 필터링됨
+ * - 전체화면(PWA) 지원: 홈 화면에 추가 시 주소창이 사라지고 독립된 앱처럼 실행되도록 meta 태그(apple-mobile-web-app-capable 등) 추가
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -44,7 +44,7 @@ import {
   List
 } from 'lucide-react';
 
-// 강제 스타일 및 앱 아이콘 주입 로직
+// 강제 스타일 및 PWA(전체화면 앱) 메타 태그 주입 로직
 if (typeof document !== 'undefined') {
   if (!document.getElementById('tailwind-script')) {
     const script = document.createElement('script');
@@ -68,9 +68,25 @@ if (typeof document !== 'undefined') {
     linkApple.href = iconUrl;
     document.head.appendChild(linkApple);
     
+    // 전체화면 앱(PWA) 지원 메타 태그 (주소창 숨기기)
+    const metaAppleCapable = document.createElement('meta');
+    metaAppleCapable.name = 'apple-mobile-web-app-capable';
+    metaAppleCapable.content = 'yes';
+    document.head.appendChild(metaAppleCapable);
+
+    const metaMobileCapable = document.createElement('meta');
+    metaMobileCapable.name = 'mobile-web-app-capable';
+    metaMobileCapable.content = 'yes';
+    document.head.appendChild(metaMobileCapable);
+
+    const metaAppleStatus = document.createElement('meta');
+    metaAppleStatus.name = 'apple-mobile-web-app-status-bar-style';
+    metaAppleStatus.content = 'default';
+    document.head.appendChild(metaAppleStatus);
+    
     const metaTheme = document.createElement('meta');
     metaTheme.name = 'theme-color';
-    metaTheme.content = '#508A12';
+    metaTheme.content = '#ffffff';
     document.head.appendChild(metaTheme);
     
     const title = document.querySelector('title');
@@ -295,7 +311,7 @@ function App() {
     displaySchedules = calendarFilteredSchedules;
   }
 
-  // 달력 렌더링 로직
+  // 달력 렌더링 로직 (상하 폭을 대폭 축소)
   const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -309,15 +325,15 @@ function App() {
     }
 
     return (
-      <div className="bg-white dark:bg-slate-800 p-[clamp(0.75rem,3vw,1.5rem)] rounded-[2rem] shadow-sm mb-4 border border-slate-100 dark:border-slate-700">
-         <div className="flex justify-between items-center mb-3 md:mb-5">
+      <div className="bg-white dark:bg-slate-800 p-3 md:p-5 rounded-[2rem] shadow-sm mb-2 border border-slate-100 dark:border-slate-700">
+         <div className="flex justify-between items-center mb-3">
            <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={28} className="dark:text-white"/></button>
-           <h2 className="text-[clamp(1.25rem,6vw,2.25rem)] font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
+           <h2 className="text-[clamp(1.2rem,5vw,2rem)] font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
            <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
          </div>
-         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2 md:mb-3 text-center">
+         <div className="grid grid-cols-7 gap-1 mb-2 text-center">
            {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
-             <div key={i} className={`text-[clamp(0.9rem,3.5vw,1.25rem)] md:text-2xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
+             <div key={i} className={`text-[clamp(0.9rem,3vw,1.1rem)] md:text-xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
            ))}
          </div>
          <div className="grid grid-cols-7 gap-1 md:gap-2">
@@ -332,17 +348,18 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[1rem] md:rounded-[1.2rem] h-[clamp(3.5rem,10vh,5.5rem)] transition-all relative overflow-hidden ${
+                 // 버튼 높이를 대폭 줄여서 상하 폭 최적화 (h-12 ~ h-14 수준)
+                 className={`flex flex-col items-center justify-center rounded-[1rem] h-[3.2rem] md:h-[4rem] transition-all relative overflow-hidden ${
                    isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
                    : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-[clamp(1.1rem,4.5vw,1.5rem)] md:text-3xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-[clamp(1.1rem,4vw,1.4rem)] md:text-2xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
                    {dayNum}
                  </span>
                  {hasSchedule && (
-                   <div className={`w-1.5 h-1.5 md:w-2.5 md:h-2.5 rounded-full mt-0.5 md:mt-1 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
+                   <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full mt-0.5 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
                  )}
                </button>
              );
@@ -439,7 +456,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      {/* 상단 헤더: clamp를 통한 자동 크기 조절 */}
+      {/* 상단 헤더 */}
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-[clamp(0.75rem,2vh,1.25rem)] transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center">
           <div>
@@ -458,6 +475,7 @@ function App() {
               {isCalendarView ? '홈' : '달력'}
             </button>
             
+            {/* PC 전용 휴지통 토글 */}
             <button 
               onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
               className={`hidden lg:flex px-4 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
@@ -470,7 +488,7 @@ function App() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-[clamp(0.75rem,2.5vh,1.5rem)] flex flex-col lg:flex-row gap-[clamp(1rem,3vh,1.5rem)]">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 pt-4 flex flex-col lg:flex-row gap-[clamp(1rem,3vh,1.5rem)]">
         
         {/* PC 전용 */}
         <aside className="hidden lg:block w-[380px] flex-shrink-0">
@@ -488,6 +506,15 @@ function App() {
         {/* 메인 리스트 및 달력 영역 */}
         <main className="flex-1 w-full">
           {isCalendarView && !showTrash && renderCalendar()}
+
+          {/* 달력에서 날짜를 선택했을 때 해당 날짜를 알려주는 제목 */}
+          {isCalendarView && !showTrash && (
+            <div className="mb-3 mt-2 px-1">
+              <h3 className="text-[1.2rem] md:text-2xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-3">
+                {parseInt(selectedDate.split('-')[1])}월 {parseInt(selectedDate.split('-')[2])}일의 일정
+              </h3>
+            </div>
+          )}
 
           {loading ? (
             <div className="py-20 text-center">
