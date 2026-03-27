@@ -1,9 +1,10 @@
 /**
  * [버전 정보]
- * v1.13.0 (2024-05-24)
- * - 상단 토글 버튼 직관성 강화: 모바일에서 숨겨지던 아이콘 대신 큼직한 텍스트('달력', '홈') 버튼으로 완전 교체
- * - 달력 일정 표시(Indicator) 개선: 모바일 환경에서 일정이 있는 날짜를 더 확실하게 인지할 수 있도록 배경색 대비 및 마커(점) 크기 확대
- * - 모바일 사용성(UX) 극대화: 화면 상단 버튼과 날짜 텍스트의 정렬 및 가독성 최적화
+ * v1.14.0 (2026-03-27)
+ * - 가독성 및 명도 대비 극대화: 기존 연두색 테마를 더 짙고 선명한 딥그린(#508A12)으로 교체하여 하얀 글씨가 완벽하게 보이도록 수정
+ * - 달력 레이아웃 최적화: 모바일에서 요일이 두 줄로 밀리는 현상을 해결하기 위해 폰트 사이즈와 간격(Grid)을 모바일에 맞게 재조정
+ * - 폰트 확대: 일정 목록에 표시되는 날짜(요일) 뱃지와 메모 텍스트의 크기를 더욱 키워 시인성 확보
+ * - 달력 토글 버튼 강화: 홈 화면과 달력을 오가는 버튼을 상단에 큼직하게 유지
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -54,7 +55,7 @@ if (typeof document !== 'undefined') {
   }
   
   if (!document.getElementById('app-favicon')) {
-    const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#8DC63F"/><rect y="30" width="100" height="70" rx="20" fill="white"/><text x="50" y="82" font-size="50" font-family="sans-serif" font-weight="900" fill="#8DC63F" text-anchor="middle">1</text><circle cx="30" cy="20" r="6" fill="white"/><circle cx="70" cy="20" r="6" fill="white"/></svg>`;
+    const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#508A12"/><rect y="30" width="100" height="70" rx="20" fill="white"/><text x="50" y="82" font-size="50" font-family="sans-serif" font-weight="900" fill="#508A12" text-anchor="middle">1</text><circle cx="30" cy="20" r="6" fill="white"/><circle cx="70" cy="20" r="6" fill="white"/></svg>`;
     const iconUrl = `data:image/svg+xml;base64,${btoa(svgIcon)}`;
     
     const linkIcon = document.createElement('link');
@@ -70,7 +71,7 @@ if (typeof document !== 'undefined') {
     
     const metaTheme = document.createElement('meta');
     metaTheme.name = 'theme-color';
-    metaTheme.content = '#8DC63F';
+    metaTheme.content = '#508A12';
     document.head.appendChild(metaTheme);
     
     const title = document.querySelector('title');
@@ -295,7 +296,7 @@ function App() {
     displaySchedules = calendarFilteredSchedules;
   }
 
-  // 달력 렌더링 로직
+  // 달력 렌더링 로직 (모바일에서 밀리지 않도록 사이즈 조정)
   const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -309,15 +310,16 @@ function App() {
     }
 
     return (
-      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[2rem] shadow-sm mb-4 border border-slate-100 dark:border-slate-700">
-         <div className="flex justify-between items-center mb-6">
-           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={32} className="dark:text-white"/></button>
-           <h2 className="text-3xl md:text-4xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
-           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={32} className="dark:text-white"/></button>
+      <div className="bg-white dark:bg-slate-800 p-3 md:p-6 rounded-[2rem] shadow-sm mb-4 border border-slate-100 dark:border-slate-700">
+         <div className="flex justify-between items-center mb-4 md:mb-6">
+           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={28} className="dark:text-white"/></button>
+           <h2 className="text-2xl md:text-4xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
+           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
          </div>
-         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-4 text-center">
+         {/* 요일 크기를 화면에 맞게 조절 */}
+         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2 md:mb-4 text-center">
            {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
-             <div key={i} className={`text-xl md:text-2xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
+             <div key={i} className={`text-[0.95rem] md:text-2xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
            ))}
          </div>
          <div className="grid grid-cols-7 gap-1 md:gap-2">
@@ -332,18 +334,17 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[1.2rem] md:rounded-[1.5rem] h-[4.5rem] md:h-24 transition-all relative overflow-hidden ${
-                   isSelected ? 'bg-[#8DC63F] text-white shadow-md scale-105' 
-                   : hasSchedule ? 'bg-[#E9F3D5] dark:bg-[#3d4d29] hover:bg-[#D5E8B5] dark:hover:bg-[#4a5e32]' 
+                 className={`flex flex-col items-center justify-center rounded-[1rem] md:rounded-[1.5rem] h-[3.5rem] md:h-24 transition-all relative overflow-hidden ${
+                   isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
+                   : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-[1.4rem] md:text-3xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#8DC63F]' : hasSchedule ? 'text-[#5D8C00] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-[1.1rem] md:text-3xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
                    {dayNum}
                  </span>
-                 {/* 일정이 있는 날 명확한 마커(점) 표시 */}
                  {hasSchedule && (
-                   <div className={`w-2.5 h-2.5 md:w-3 md:h-3 rounded-full mt-1 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#8DC63F] dark:bg-[#8DC63F]'}`} />
+                   <div className={`w-1.5 h-1.5 md:w-2.5 md:h-2.5 rounded-full mt-1 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
                  )}
                </button>
              );
@@ -361,7 +362,7 @@ function App() {
         <input 
           type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} 
           placeholder="예: 병원 방문" 
-          className="w-full text-xl md:text-2xl p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] md:rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#8DC63F]/20 transition-all shadow-inner" 
+          className="w-full text-xl md:text-2xl p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] md:rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#508A12]/30 transition-all shadow-inner" 
           autoFocus 
           required
         />
@@ -389,7 +390,7 @@ function App() {
 
       <div className="flex items-center justify-between p-4 bg-[#F7F9FB] dark:bg-slate-700 rounded-[1.2rem]">
         <span className="font-black text-slate-700 dark:text-slate-200 text-base md:text-lg">여러 날 일정</span>
-        <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-all ${isRange ? 'bg-[#8DC63F]' : 'bg-slate-300 dark:bg-slate-500'}`}>
+        <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-all ${isRange ? 'bg-[#508A12]' : 'bg-slate-300 dark:bg-slate-500'}`}>
           <div className={`absolute top-1 bg-white w-6 h-6 rounded-full transition-transform ${isRange ? 'translate-x-7' : 'translate-x-1'} shadow-md`} />
         </button>
       </div>
@@ -420,7 +421,7 @@ function App() {
         <button 
           type="submit" 
           disabled={isSaving}
-          className="flex-[2] py-4 md:py-5 bg-[#8DC63F] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#8DC63F]/30 active:scale-95 transition-all disabled:opacity-50"
+          className="flex-[2] py-4 md:py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50"
         >
           {isSaving ? '저장 중...' : (editingId ? '일정 수정완료' : '새 일정 등록')}
         </button>
@@ -444,7 +445,7 @@ function App() {
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-5 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center">
           <div>
-            <p className="text-slate-900 dark:text-white font-black text-[2rem] md:text-5xl tracking-tighter leading-none">
+            <p className="text-slate-900 dark:text-white font-black text-[1.8rem] md:text-5xl tracking-tighter leading-none">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
@@ -455,7 +456,7 @@ function App() {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
               }}
-              className="flex items-center justify-center min-w-[80px] px-6 py-3 md:px-8 md:py-4 bg-[#8DC63F] text-white rounded-full font-black text-xl md:text-2xl active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center min-w-[80px] px-5 py-2.5 md:px-8 md:py-4 bg-[#508A12] text-white rounded-full font-black text-lg md:text-2xl active:scale-95 transition-all shadow-md"
             >
               {isCalendarView ? '홈' : '달력'}
             </button>
@@ -480,7 +481,7 @@ function App() {
           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[120px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                 {editingId ? <Edit2 className="text-amber-500" size={24} strokeWidth={3} /> : <Plus className="text-[#8DC63F]" size={24} strokeWidth={3} />} 
+                 {editingId ? <Edit2 className="text-amber-500" size={24} strokeWidth={3} /> : <Plus className="text-[#508A12]" size={24} strokeWidth={3} />} 
                  {editingId ? '일정 수정' : '새 일정 등록'}
               </h2>
             </div>
@@ -495,35 +496,35 @@ function App() {
 
           {loading ? (
             <div className="py-20 text-center">
-              <RefreshCw className="animate-spin mx-auto text-[#8DC63F] opacity-50" size={48} />
+              <RefreshCw className="animate-spin mx-auto text-[#508A12] opacity-50" size={48} />
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-5">
               {displaySchedules.map((item) => (
                 <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.8rem] md:rounded-[2rem] p-5 md:p-6 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-4 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
                   <div className="flex-1 w-full">
-                     {/* 초록색 알약 형태의 날짜/요일 (폰트 확대) */}
-                     <div className="mb-3">
-                       <span className={`inline-block text-white font-black text-[1.3rem] md:text-2xl tracking-tight px-4 py-2 rounded-[1rem] shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#8DC63F] dark:bg-[#7AB12E]'}`}>
+                     {/* 딥그린 알약 형태의 날짜/요일 (폰트 확대) */}
+                     <div className="mb-4">
+                       <span className={`inline-block text-white font-black text-[1.4rem] md:text-2xl tracking-tight px-5 py-2.5 rounded-[1.2rem] shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
                          {formatDateWithDay(item.startDate)}
                          {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
                      </div>
 
-                     <h4 className={`text-[1.6rem] md:text-3xl font-black leading-tight mb-2 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                     <h4 className={`text-[1.8rem] md:text-3xl font-black leading-tight mb-3 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
                        {item.title}
                      </h4>
                      
                      {/* 폰트 대폭 확대된 시간 및 장소 */}
                      <div className="flex flex-wrap gap-4 my-3">
-                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.4rem] md:text-2xl flex items-center gap-2"><Clock size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.time}</p>}
-                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.4rem] md:text-2xl flex items-center gap-2"><MapPin size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#8DC63F]'}/> {item.location}</p>}
+                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.5rem] md:text-2xl flex items-center gap-2"><Clock size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#508A12]'}/> {item.time}</p>}
+                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.5rem] md:text-2xl flex items-center gap-2"><MapPin size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#508A12]'}/> {item.location}</p>}
                      </div>
 
                      {/* 메모 텍스트 사이즈 대폭 확대 */}
                      {item.content && (
-                       <div className={`mt-4 p-4 md:p-5 rounded-2xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-slate-50 dark:border-slate-600'}`}>
-                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[1.2rem] md:text-2xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                       <div className={`mt-4 p-5 rounded-2xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
+                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[1.4rem] md:text-2xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
                        </div>
                      )}
                   </div>
@@ -580,20 +581,20 @@ function App() {
                   {pastSchedules.length > 0 ? pastSchedules.map((item) => (
                     <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.8rem] p-5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-4 opacity-80 hover:opacity-100 transition-opacity">
                       <div className="flex-1 w-full">
-                         <div className="mb-2">
-                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-lg md:text-xl tracking-tight px-3 py-1.5 rounded-xl shadow-sm">
+                         <div className="mb-3">
+                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-lg md:text-xl tracking-tight px-4 py-2 rounded-xl shadow-sm">
                              {formatDateWithDay(item.startDate)}
                              {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                            </span>
                          </div>
-                         <h4 className="text-[1.5rem] md:text-2xl font-black text-slate-700 dark:text-slate-300 leading-tight mb-2 tracking-tight break-keep">{item.title}</h4>
+                         <h4 className="text-[1.6rem] md:text-2xl font-black text-slate-700 dark:text-slate-300 leading-tight mb-2 tracking-tight break-keep">{item.title}</h4>
                          <div className="flex flex-wrap gap-4 my-2">
-                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-lg md:text-xl flex items-center gap-2"><Clock size={24} className="text-slate-400 dark:text-slate-500"/> {item.time}</p>}
-                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-lg md:text-xl flex items-center gap-2"><MapPin size={24} className="text-slate-400 dark:text-slate-500"/> {item.location}</p>}
+                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-xl md:text-2xl flex items-center gap-2"><Clock size={24} className="text-slate-400 dark:text-slate-500"/> {item.time}</p>}
+                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-xl md:text-2xl flex items-center gap-2"><MapPin size={24} className="text-slate-400 dark:text-slate-500"/> {item.location}</p>}
                          </div>
                          {item.content && (
                            <div className="mt-3 bg-slate-100 dark:bg-slate-700 p-4 rounded-xl">
-                             <p className="text-slate-500 dark:text-slate-300 font-bold text-lg whitespace-pre-wrap">{item.content}</p>
+                             <p className="text-slate-500 dark:text-slate-300 font-bold text-lg md:text-xl whitespace-pre-wrap">{item.content}</p>
                            </div>
                          )}
                       </div>
@@ -602,7 +603,7 @@ function App() {
                       </div>
                     </div>
                   )) : (
-                    <div className="py-8 text-center text-slate-400 dark:text-slate-500 font-bold text-lg bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
+                     <div className="py-8 text-center text-slate-400 dark:text-slate-500 font-bold text-lg bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
                       지난 일정이 없습니다.
                     </div>
                   )}
