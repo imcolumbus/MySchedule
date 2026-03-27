@@ -1,10 +1,9 @@
 /**
  * [버전 정보]
- * v1.25.0 (2026-03-28)
- * - 데이터 경로 롤백 및 복구: 보안 강화를 위해 변경했던 개인 경로를 이전 공용(public) 경로로 되돌려, 사라진 줄 알았던 기존 일정 데이터를 100% 완벽 복구
- * - 인증(Auth) 시스템 원복: 구글 로그인 시 발생하는 보안 규칙 충돌 및 권한 오류(Permission Denied)를 해결하기 위해 자동 익명 로그인 방식으로 롤백
- * - 가족 연동 필터링 적용: 공용 경로를 사용하더라도, '가족 연동 코드'로 연결된 서로의 데이터만 화면에 필터링하여 보여주도록 개선 (프라이버시 유지)
- * - 기존 모바일 UI/UX 최적화(D-Day, 달력 압축 등) 모두 유지
+ * v1.26.0 (2026-03-28)
+ * - URL 기반 완전 자동 공유방 시스템: 복잡하고 오류가 잦은 '가족 연동 코드' 기능을 완전히 삭제하고, Vercel 주소만 공유하면 누구나 동일한 가족 일정을 실시간으로 볼 수 있도록 직관성 극대화 (작성자 필터링 해제)
+ * - 기존 데이터 완벽 복구: 작성자 필터링을 해제함으로써, 구글 로그인이든 익명 로그인이든 상관없이 기존에 작성했던 모든 소중한 일정이 다시 화면에 나타남
+ * - Firestore 에러 감지 UI 추가: Firebase 보안 규칙이 잠겨서 데이터를 저장/불러오지 못할 경우, 하얀 화면이나 먹통이 되는 대신 정확한 해결 방법을 알려주는 알림창(Modal) 도입
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -18,7 +17,6 @@ import {
   deleteDoc, 
   doc, 
   updateDoc,
-  setDoc,
   serverTimestamp 
 } from 'firebase/firestore';
 import { 
@@ -42,9 +40,8 @@ import {
   ChevronUp,
   ChevronLeft,
   ChevronRight,
-  Users,
-  Copy,
-  Check
+  Info,
+  XCircle
 } from 'lucide-react';
 
 // 강제 스타일 및 PWA(전체화면 앱) 메타 태그 주입 로직
@@ -155,12 +152,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [showTrash, setShowTrash] = useState(false); 
   const [showPast, setShowPast] = useState(false); 
-
-  // 가족 연동 상태
-  const [linkedUid, setLinkedUid] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [linkInput, setLinkInput] = useState('');
-  const [copySuccess, setCopySuccess] = useState(false);
+  const [errorModal, setErrorModal] = useState(null); // 에러 메시지 알림창 상태
 
   // 달력 모드 상태
   const [isCalendarView, setIsCalendarView] = useState(false);
@@ -195,7 +187,7 @@ export default function App() {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
   });
 
-  // 자동 인증 롤백 (구글 로그인 제거)
+  // 익명 로그인 자동 진행
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => {
@@ -203,10 +195,14 @@ export default function App() {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
         } else {
-          // 기존 데이터 권한 복구를 위해 다시 자동 로그인 적용
-          await signInAnonymously(auth);
+          // 기기에 저장된 세션이 없으면 자동 익명 가입
+          if (!auth.currentUser) {
+            await signInAnonymously(auth);
+          }
         }
-      } catch (e) { console.error("Auth Init Fail:", e); }
+      } catch (e) { 
+        console.error("Auth Init Fail:", e);
+      }
     };
     initAuth();
     
@@ -216,25 +212,9 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 연동된 계정 정보 불러오기
+  // 일정 데이터 불러오기 (모든 사람이 공유하는 public 폴더 데이터 전체)
   useEffect(() => {
     if (!user || !db) return;
-    // 설정값은 개인 경로에 저장 (Canvas 정책 준수)
-    const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
-      if (docSnap.exists() && docSnap.data().linkedUid) {
-        setLinkedUid(docSnap.data().linkedUid);
-      } else {
-        setLinkedUid(null);
-      }
-    });
-    return () => unsubscribe();
-  }, [user, db]);
-
-  // 일정 데이터 불러오기 (기존의 public 경로로 롤백하여 예전 데이터 복구)
-  useEffect(() => {
-    if (!user || !db) return;
-    // 경로를 원상복구 (기존 데이터가 저장되어 있는 곳)
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
     const unsubscribe = onSnapshot(schedulesRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -243,6 +223,10 @@ export default function App() {
     }, (err) => {
       console.error("Firestore Error:", err);
       setLoading(false);
+      // 권한 에러(permission-denied) 발생 시 명확히 안내
+      if (err.code === 'permission-denied') {
+        setErrorModal("데이터를 불러올 수 없습니다.\nFirebase 콘솔의 [Firestore Database] -> [규칙(Rules)] 탭에서 'allow read, write: if true;' 로 권한을 열어주세요.");
+      }
     });
     return () => unsubscribe();
   }, [user, db]);
@@ -261,11 +245,10 @@ export default function App() {
       const scheduleData = {
         title: newTitle, content: newContent, location: newLocation, time: newTime, 
         startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate,
-        author: user.uid, // 자신이 작성한 글로 표시
+        author: user.uid,
         isDeleted: false 
       };
 
-      // 원상복구된 public 경로에 저장
       if (editingId) {
         scheduleData.updatedAt = serverTimestamp();
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', editingId), scheduleData);
@@ -274,8 +257,10 @@ export default function App() {
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), scheduleData);
       }
       resetForm();
-    } catch (e) { 
-      console.error("Save Fail:", e); 
+    } catch (err) { 
+      console.error("Save Fail:", err); 
+      // 추가/수정 권한 에러 발생 시 안내
+      setErrorModal("일정을 저장할 권한이 막혀있습니다.\nFirebase 콘솔의 [Firestore Database] -> [규칙(Rules)] 탭에서 'allow read, write: if true;' 로 설정 후 게시해주세요.");
     } finally {
       setIsSaving(false);
     }
@@ -287,7 +272,9 @@ export default function App() {
       try {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: true });
         if (editingId === id) resetForm();
-      } catch (e) { console.error("Trash Fail:", e); }
+      } catch (err) { 
+        setErrorModal("삭제 권한이 없습니다. Firebase 보안 규칙을 확인해주세요."); 
+      }
     }
   };
 
@@ -295,7 +282,9 @@ export default function App() {
     if (!db || !user) return;
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: false });
-    } catch (e) { console.error("Restore Fail:", e); }
+    } catch (err) { 
+      setErrorModal("복구 권한이 없습니다. Firebase 보안 규칙을 확인해주세요."); 
+    }
   };
 
   const handlePermanentDelete = async (id) => {
@@ -303,7 +292,9 @@ export default function App() {
     if (confirm("이 일정을 완전히 삭제하시겠습니까? 복구할 수 없습니다.")) {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
-      } catch (e) { console.error("Delete Fail:", e); }
+      } catch (err) { 
+        setErrorModal("영구 삭제 권한이 없습니다. Firebase 보안 규칙을 확인해주세요."); 
+      }
     }
   };
 
@@ -323,65 +314,28 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleCopyCode = () => {
-    const textArea = document.createElement("textarea");
-    textArea.value = user.uid;
-    document.body.appendChild(textArea);
-    textArea.select();
-    try {
-      document.execCommand('copy');
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    } catch (err) { console.error('Copy failed', err); }
-    document.body.removeChild(textArea);
-  };
-
-  const handleLinkAccount = async () => {
-    if (!linkInput.trim() || !user) return;
-    const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-    await setDoc(profileRef, { linkedUid: linkInput.trim() }, { merge: true });
-    setLinkInput('');
-    setShowSettings(false);
-  };
-
-  const handleUnlink = async () => {
-    if(!user) return;
-    if(confirm("가족 연동을 해제하시겠습니까?")) {
-      const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-      await setDoc(profileRef, { linkedUid: null }, { merge: true });
-      setShowSettings(false);
-    }
-  };
-
-  // 내 일정 + 연동된 가족의 일정만 필터링하여 보여줌 (기존 공용 폴더 데이터 보존 방식)
-  const familySchedules = useMemo(() => {
-    if (!user) return [];
-    return schedules.filter(s => 
-      !s.author || s.author === user.uid || s.author === linkedUid
-    );
-  }, [schedules, user, linkedUid]);
-
+  // 작성자(author) 필터링 조건 삭제: URL을 공유받은 가족 누구나 모든 일정을 볼 수 있음
   const activeSchedules = useMemo(() => {
-    return familySchedules
+    return schedules
       .filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr)
       .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
-  }, [familySchedules, todayStr]);
+  }, [schedules, todayStr]);
 
   const pastSchedules = useMemo(() => {
-    return familySchedules
+    return schedules
       .filter(s => !s.isDeleted && (s.endDate || s.startDate) < todayStr)
       .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-  }, [familySchedules, todayStr]);
+  }, [schedules, todayStr]);
 
   const trashedSchedules = useMemo(() => {
-    return familySchedules
+    return schedules
       .filter(s => s.isDeleted)
       .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-  }, [familySchedules]);
+  }, [schedules]);
 
   const calendarFilteredSchedules = useMemo(() => {
-    return familySchedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate);
-  }, [familySchedules, selectedDate]);
+    return schedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate);
+  }, [schedules, selectedDate]);
 
   let displaySchedules = showTrash ? trashedSchedules : activeSchedules;
   if (isCalendarView && !showTrash) displaySchedules = calendarFilteredSchedules;
@@ -414,7 +368,7 @@ export default function App() {
            {days.map((dateStr, idx) => {
              if (!dateStr) return <div key={`empty-${idx}`} />;
              const dayNum = parseInt(dateStr.split('-')[2]);
-             const hasSchedule = familySchedules.some(s => !s.isDeleted && s.startDate <= dateStr && (s.endDate || s.startDate) >= dateStr);
+             const hasSchedule = schedules.some(s => !s.isDeleted && s.startDate <= dateStr && (s.endDate || s.startDate) >= dateStr);
              const isSelected = selectedDate === dateStr;
              const isToday = todayStr === dateStr;
 
@@ -509,45 +463,57 @@ export default function App() {
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center">
-        <RefreshCw className="animate-spin text-[#508A12] opacity-50" size={48} />
-      </div>
-    );
-  }
-
   // 메인 앱
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
+      
+      {/* Firebase 권한 거부 에러 모달 */}
+      {errorModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 transition-all">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-[2.5rem] p-6 md:p-8 shadow-2xl text-center border-t-[12px] border-red-500">
+            <XCircle className="text-red-500 mx-auto mb-4" size={64} />
+            <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-4">데이터베이스 권한 잠김</h2>
+            <p className="text-slate-600 dark:text-slate-300 font-bold mb-6 whitespace-pre-wrap leading-relaxed text-[15px]">
+              {errorModal}
+            </p>
+            <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-2xl mb-6 text-left">
+              <p className="text-sm text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-keep">
+                💡 <strong className="text-red-500">해결 방법:</strong><br/>
+                1. Firebase 콘솔 로그인<br/>
+                2. [Firestore Database] 메뉴 선택<br/>
+                3. 상단의 [규칙 (Rules)] 탭 선택<br/>
+                4. <code className="bg-white dark:bg-slate-800 px-1 py-0.5 rounded text-red-500">allow read, write: if true;</code> 로 변경 후 '게시' 클릭
+              </p>
+            </div>
+            <button 
+              onClick={() => setErrorModal(null)} 
+              className="w-full py-4 bg-slate-800 text-white dark:bg-slate-600 font-black rounded-xl hover:bg-slate-700 transition-colors"
+            >
+              확인했습니다
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
             <p className="text-slate-900 dark:text-white font-black text-[clamp(14px,3.8vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
-            {linkedUid && <span className="hidden sm:inline-block bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 text-[10px] md:text-sm font-bold px-1.5 py-0.5 rounded-md border border-orange-200 dark:border-orange-800 whitespace-nowrap">가족 연동됨</span>}
+            {/* 가족 연동이 자동으로 전체 공유되므로 태그 제거됨 */}
           </div>
           
-          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 md:gap-2 flex-shrink-0">
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
                 setCalendarMonth(new Date());
               }}
-              className="flex items-center justify-center min-w-[40px] px-2.5 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center min-w-[50px] px-3 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-md"
             >
-              {isCalendarView ? '홈' : '달력'}
-            </button>
-            
-            <button 
-              onClick={() => setShowSettings(true)}
-              className={`flex items-center justify-center px-2 py-1.5 md:px-3 md:py-2 rounded-full font-black transition-all ${linkedUid ? 'bg-orange-100 text-orange-600 hover:bg-orange-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200'}`}
-              title="가족 연동"
-            >
-              <Users size={14} className="md:w-4 md:h-4" />
-              <span className="ml-0.5 text-[11px] md:text-xs whitespace-nowrap">{linkedUid ? '연동됨' : '가족연동'}</span>
+              {isCalendarView ? '홈으로' : '달력보기'}
             </button>
           </div>
         </div>
@@ -591,73 +557,80 @@ export default function App() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-3">
-            {displaySchedules.map((item) => (
-              <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
-                <div className="flex-1 w-full">
-                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                     <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 md:py-1.5 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
-                       {formatDateWithDay(item.startDate)}
-                       {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
-                     </span>
-                     {!showTrash && (
-                       <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
-                         {getDDay(item.startDate)}
+          {loading ? (
+             <div className="py-20 text-center">
+              <RefreshCw className="animate-spin mx-auto text-[#508A12] opacity-50" size={48} />
+              <p className="mt-4 text-slate-500 font-bold">일정을 불러오는 중입니다...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {displaySchedules.map((item) => (
+                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
+                  <div className="flex-1 w-full">
+                     <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                       <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 md:py-1.5 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
+                         {formatDateWithDay(item.startDate)}
+                         {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
-                     )}
-                   </div>
-
-                   <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
-                     {item.title}
-                   </h4>
-                   
-                   <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
-                     {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
-                     {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
-                   </div>
-
-                   {item.content && (
-                     <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                       <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
+                       {!showTrash && (
+                         <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
+                           {getDDay(item.startDate)}
+                         </span>
+                       )}
                      </div>
-                   )}
-                </div>
 
-                <div className="hidden lg:flex flex-col gap-2 self-start">
-                  {!showTrash ? (
+                     <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                       {item.title}
+                     </h4>
+                     
+                     <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
+                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
+                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
+                     </div>
+
+                     {item.content && (
+                       <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
+                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
+                       </div>
+                     )}
+                  </div>
+
+                  <div className="hidden lg:flex flex-col gap-2 self-start">
+                    {!showTrash ? (
+                      <>
+                        <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
+                        <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-50 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => handleRestore(item.id)} className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={20} /></button>
+                        <button onClick={() => handlePermanentDelete(item.id)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={20} /></button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {displaySchedules.length === 0 && (
+                <div className="py-10 text-center bg-white dark:bg-slate-800 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-700 mx-2">
+                  {showTrash ? (
                     <>
-                      <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
-                      <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
+                      <Trash size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                      <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => handleRestore(item.id)} className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={20} /></button>
-                      <button onClick={() => handlePermanentDelete(item.id)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={20} /></button>
+                      <CalendarDays size={50} className="mx-auto mb-3 text-[#508A12] opacity-40" />
+                      <p className="text-slate-500 dark:text-slate-400 font-black text-[clamp(1.1rem,4vw,1.4rem)] mb-2">
+                        {isCalendarView ? '이 날짜에는 등록된 일정이 없습니다.' : '예정된 일정이 없습니다.'}
+                      </p>
                     </>
                   )}
                 </div>
-              </div>
-            ))}
-            {displaySchedules.length === 0 && (
-              <div className="py-8 text-center bg-white dark:bg-slate-800 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-700 mx-2">
-                {showTrash ? (
-                  <>
-                    <Trash size={40} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                    <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
-                  </>
-                ) : (
-                  <>
-                    <CalendarDays size={40} className="mx-auto mb-3 text-[#508A12] opacity-40" />
-                    <p className="text-slate-500 dark:text-slate-400 font-black text-[clamp(1.1rem,4vw,1.4rem)] mb-2">
-                      {isCalendarView ? '이 날짜에는 등록된 일정이 없습니다.' : '예정된 일정이 없습니다.'}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
-          {!showTrash && !isCalendarView && (
+          {!loading && !showTrash && !isCalendarView && (
             <div className="mt-5 mb-4 flex flex-col items-center">
               <button 
                 onClick={() => setShowPast(!showPast)}
@@ -707,68 +680,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {/* 가족 연동 설정 모달 */}
-      {showSettings && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] p-5 md:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-               <h2 className="text-xl md:text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                 <Users className="text-[#508A12]" size={28} /> 가족 계정 연동
-               </h2>
-               <button onClick={() => setShowSettings(false)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-500 dark:text-slate-300 active:scale-90 transition-all">
-                 <span className="font-bold px-2">닫기</span>
-               </button>
-            </div>
-
-            <div className="space-y-5 md:space-y-6">
-              <div className="bg-slate-50 dark:bg-slate-700/50 p-4 md:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
-                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">내 연동 코드</h3>
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 leading-relaxed break-keep">
-                  이 기기의 코드를 복사하여, 일정을 공유할 가족의 앱에 등록해주세요.
-                </p>
-                <div className="flex gap-2">
-                  <input type="text" readOnly value={user?.uid || ''} className="flex-1 w-0 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-sm px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 outline-none" />
-                  <button onClick={handleCopyCode} className="px-4 bg-[#508A12] text-white rounded-xl font-bold flex items-center gap-1.5 hover:bg-[#3E6B0E] transition-colors whitespace-nowrap">
-                    {copySuccess ? <><Check size={18}/> 완료</> : <><Copy size={18}/> 복사</>}
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 dark:bg-slate-700/50 p-4 md:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
-                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">가족 일정 불러오기</h3>
-                
-                {linkedUid ? (
-                  <div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4 break-keep">
-                      현재 가족의 일정과 완벽하게 연동되어 있습니다.<br/>(코드: <span className="font-mono text-[#508A12]">{linkedUid.slice(0,8)}...</span>)
-                    </p>
-                    <button onClick={handleUnlink} className="w-full py-4 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-black rounded-xl hover:bg-red-200 transition-colors">
-                      연동 해제하고 내 캘린더 보기
-                    </button>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 break-keep">
-                      가족의 핸드폰에서 복사한 '연동 코드'를 아래 빈칸에 붙여넣으세요.
-                    </p>
-                    <input 
-                      type="text" 
-                      value={linkInput} 
-                      onChange={(e) => setLinkInput(e.target.value)} 
-                      placeholder="여기에 코드를 붙여넣으세요" 
-                      className="w-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 mb-3 outline-none focus:border-[#508A12]"
-                    />
-                    <button onClick={handleLinkAccount} disabled={!linkInput.trim()} className="w-full py-4 bg-slate-800 text-white dark:bg-slate-600 font-black rounded-xl hover:bg-slate-700 transition-colors disabled:opacity-50">
-                      일정 연동 시작하기
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
