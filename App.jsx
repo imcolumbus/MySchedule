@@ -1,11 +1,10 @@
 /**
  * [버전 정보]
- * v1.11.0 (2024-05-24)
- * - 다크 모드(Dark Mode) 자동 지원: 어두운 곳에서 눈부심 방지를 위한 테마 적용 (시스템 설정 연동)
- * - 공간 최적화: 불필요한 섹션 제목("오늘 및 주요 일정", "예정된 전체 일정") 및 과도한 여백 완벽 제거
- * - 가독성 극대화: 일정 날짜/요일, 시간, 위치, 메모 폰트 사이즈를 이전보다 훨씬 더 크게 확대
- * - 달력 보기 기능: 화면 상단 달력 버튼을 통해 직관적이고 큼직한 달력으로 일정을 확인하는 기능 추가
- * - 모바일 뷰어 모드 유지: 모바일에서는 안전하게 보기만 가능, 수정/삭제는 PC에서만 작동
+ * v1.12.0 (2024-05-24)
+ * - 홈 화면 아이콘: 홈 화면에 추가 시 깔끔한 초록색 달력 아이콘이 나오도록 메타 태그 동적 삽입
+ * - 레이아웃 정렬: 상단 날짜 텍스트와 하단 일정 카드의 좌측 여백을 완벽히 일치시켜 안정감 확보
+ * - 달력 시인성 극대화: 요일 글자 크기 대폭 확대, 일정이 있는 날짜는 칸 전체에 색상 배경 적용
+ * - 모바일 환경 최적화 및 다크 모드 대응 유지
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -46,12 +45,39 @@ import {
   List
 } from 'lucide-react';
 
-// 강제 스타일 주입 로직 (Vercel 호환성)
-if (typeof document !== 'undefined' && !document.getElementById('tailwind-script')) {
-  const script = document.createElement('script');
-  script.id = 'tailwind-script';
-  script.src = 'https://cdn.tailwindcss.com';
-  document.head.appendChild(script);
+// 강제 스타일 및 앱 아이콘 주입 로직 (Vercel 및 홈 화면 추가 지원)
+if (typeof document !== 'undefined') {
+  if (!document.getElementById('tailwind-script')) {
+    const script = document.createElement('script');
+    script.id = 'tailwind-script';
+    script.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(script);
+  }
+  
+  if (!document.getElementById('app-favicon')) {
+    // 예쁜 달력 모양의 SVG 아이콘 생성
+    const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#8DC63F"/><rect y="30" width="100" height="70" rx="20" fill="white"/><text x="50" y="82" font-size="50" font-family="sans-serif" font-weight="900" fill="#8DC63F" text-anchor="middle">1</text><circle cx="30" cy="20" r="6" fill="white"/><circle cx="70" cy="20" r="6" fill="white"/></svg>`;
+    const iconUrl = `data:image/svg+xml;base64,${btoa(svgIcon)}`;
+    
+    const linkIcon = document.createElement('link');
+    linkIcon.id = 'app-favicon';
+    linkIcon.rel = 'icon';
+    linkIcon.href = iconUrl;
+    document.head.appendChild(linkIcon);
+
+    const linkApple = document.createElement('link');
+    linkApple.rel = 'apple-touch-icon';
+    linkApple.href = iconUrl;
+    document.head.appendChild(linkApple);
+    
+    const metaTheme = document.createElement('meta');
+    metaTheme.name = 'theme-color';
+    metaTheme.content = '#8DC63F';
+    document.head.appendChild(metaTheme);
+    
+    const title = document.querySelector('title');
+    if(title) title.innerText = '나의 일정';
+  }
 }
 
 // 1. Firebase 설정값 추출 로직
@@ -287,14 +313,14 @@ function App() {
 
     return (
       <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[2rem] shadow-sm mb-4 border border-slate-100 dark:border-slate-700">
-         <div className="flex justify-between items-center mb-4">
-           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={28} className="dark:text-white"/></button>
-           <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
-           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
+         <div className="flex justify-between items-center mb-6">
+           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={32} className="dark:text-white"/></button>
+           <h2 className="text-3xl md:text-4xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
+           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={32} className="dark:text-white"/></button>
          </div>
-         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2 text-center">
+         <div className="grid grid-cols-7 gap-1 md:gap-2 mb-4 text-center">
            {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
-             <div key={i} className={`text-lg font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-400 dark:text-slate-400'}`}>{wd}</div>
+             <div key={i} className={`text-xl md:text-2xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
            ))}
          </div>
          <div className="grid grid-cols-7 gap-1 md:gap-2">
@@ -309,16 +335,17 @@ function App() {
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[1.2rem] h-[4.5rem] md:h-20 transition-all ${
+                 className={`flex flex-col items-center justify-center rounded-[1.2rem] md:rounded-[1.5rem] h-20 md:h-24 transition-all ${
                    isSelected ? 'bg-[#8DC63F] text-white shadow-md scale-105' 
+                   : hasSchedule ? 'bg-[#E9F3D5] dark:bg-[#3d4d29] hover:bg-[#D5E8B5] dark:hover:bg-[#4a5e32]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-xl md:text-2xl font-black ${isSelected ? 'text-white' : isToday ? 'text-[#8DC63F]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-2xl md:text-3xl font-black ${isSelected ? 'text-white' : isToday ? 'text-[#8DC63F]' : hasSchedule ? 'text-[#5D8C00] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
                    {dayNum}
                  </span>
                  {hasSchedule && (
-                   <div className={`w-2.5 h-2.5 rounded-full mt-1 ${isSelected ? 'bg-white' : 'bg-[#8DC63F]'}`} />
+                   <div className={`w-2.5 h-2.5 rounded-full mt-2 ${isSelected ? 'bg-white' : 'bg-[#8DC63F] dark:bg-[#8DC63F]'}`} />
                  )}
                </button>
              );
@@ -415,11 +442,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      {/* 상단 헤더: 공간 최적화, 달력 토글 및 날짜 확대 */}
-      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-4 px-4 md:px-6 transition-colors duration-300">
-        <div className="flex justify-between items-center max-w-6xl mx-auto">
+      {/* 상단 헤더: 공간 최적화 및 좌측 정렬 완벽 일치 */}
+      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-5 transition-colors duration-300">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center">
           <div>
-            <p className="text-slate-900 dark:text-white font-black text-[1.8rem] md:text-4xl tracking-tighter leading-none">
+            <p className="text-slate-900 dark:text-white font-black text-[2rem] md:text-5xl tracking-tighter leading-none">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
@@ -428,7 +455,7 @@ function App() {
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
-                setSelectedDate(todayStr); // 모드 변경 시 오늘 날짜로 초기화
+                setSelectedDate(todayStr); 
               }}
               className="flex items-center gap-2 px-4 py-2.5 bg-[#F0F7E6] dark:bg-slate-700 text-[#5D8C00] dark:text-[#8DC63F] rounded-full font-black text-sm md:text-base active:scale-95 transition-all shadow-sm border border-[#8DC63F]/20 dark:border-transparent"
             >
@@ -456,7 +483,7 @@ function App() {
         
         {/* PC 전용: 좌측 고정 일정 입력 (공간 최적화) */}
         <aside className="hidden lg:block w-[380px] flex-shrink-0">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[100px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
+          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[120px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
                  {editingId ? <Edit2 className="text-amber-500" size={24} strokeWidth={3} /> : <Plus className="text-[#8DC63F]" size={24} strokeWidth={3} />} 
