@@ -1,10 +1,9 @@
 /**
  * [버전 정보]
- * v1.22.0 (2026-03-28)
- * - 구글 간편 로그인(Google Auth) 도입: 익명 로그인을 제거하고, 기기 연동 구글 계정을 통한 원터치 간편 로그인 적용
- * - 개인 비공개 데이터 경로 적용: Firestore 경로를 public에서 개인 UID 경로(users/UID/schedules)로 완벽히 격리하여 보안 극대화
- * - 로그아웃 기능 추가: 상단 헤더에 계정 전환을 위한 로그아웃 버튼 탑재
- * - 반응형 디자인 및 D-Day 기능 등 기존 최적화 UX 모두 유지
+ * v1.23.0 (2026-03-28)
+ * - 이전 버전 롤백 현상 복구: 딥그린(#508A12) 테마, 달력 뷰, D-Day 기능 등 최신 사양 전면 복구
+ * - 모바일 가족연동 버튼 시인성 강화: 모바일 화면에서도 '가족연동' 글자가 명확히 보이도록 헤더 버튼 디자인 수정
+ * - 구글 간편 로그인(Google Auth) 및 개인 비공개 보안 경로(users/UID/schedules) 완벽 적용
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -44,7 +43,6 @@ import {
   ChevronUp,
   ChevronLeft,
   ChevronRight,
-  List,
   LogOut,
   Users,
   Copy,
@@ -75,7 +73,6 @@ if (typeof document !== 'undefined') {
     linkApple.href = iconUrl;
     document.head.appendChild(linkApple);
     
-    // 전체화면 앱(PWA) 지원 메타 태그 (주소창 숨기기)
     const metaAppleCapable = document.createElement('meta');
     metaAppleCapable.name = 'apple-mobile-web-app-capable';
     metaAppleCapable.content = 'yes';
@@ -86,11 +83,6 @@ if (typeof document !== 'undefined') {
     metaMobileCapable.content = 'yes';
     document.head.appendChild(metaMobileCapable);
 
-    const metaAppleStatus = document.createElement('meta');
-    metaAppleStatus.name = 'apple-mobile-web-app-status-bar-style';
-    metaAppleStatus.content = 'default';
-    document.head.appendChild(metaAppleStatus);
-    
     const metaTheme = document.createElement('meta');
     metaTheme.name = 'theme-color';
     metaTheme.content = '#ffffff';
@@ -101,7 +93,7 @@ if (typeof document !== 'undefined') {
   }
 }
 
-// 1. Firebase 설정값 추출 로직
+// Firebase 설정값 추출 로직
 const getFirebaseConfig = () => {
   const parse = (raw) => {
     if (!raw) return null;
@@ -134,7 +126,7 @@ const getFirebaseConfig = () => {
   return { config: parse(source), rawSource: source };
 };
 
-const { config: firebaseConfig, rawSource } = getFirebaseConfig();
+const { config: firebaseConfig } = getFirebaseConfig();
 
 // Firebase 초기화
 const app = (firebaseConfig && firebaseConfig.apiKey) ? initializeApp(firebaseConfig) : null;
@@ -158,7 +150,7 @@ const formatDateWithDay = (dateStr) => {
   return `${parseInt(month)}월 ${parseInt(day)}일 ${days[dateObj.getDay()]}요일`;
 };
 
-function App() {
+export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [schedules, setSchedules] = useState([]);
@@ -204,20 +196,18 @@ function App() {
   const [newEndDate, setNewEndDate] = useState('');
   const [isRange, setIsRange] = useState(false);
 
-  // 상단 헤더 전체 날짜
   const fullDateDisplay = new Date().toLocaleDateString('ko-KR', { 
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
   });
 
+  // 구글 로그인 상태 감지
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => {
       try {
-        // Canvas 미리보기 환경을 위한 커스텀 토큰 체크
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
         }
-        // 익명 로그인(signInAnonymously) 제거 - 구글 로그인 강제
       } catch (e) { console.error("Auth Init Fail:", e); }
     };
     initAuth();
@@ -243,12 +233,10 @@ function App() {
     return () => unsubscribe();
   }, [user, db]);
 
+  // 일정 데이터 불러오기 (개인 경로 or 연동된 경로)
   useEffect(() => {
     if (!activeUid || !db) return;
-    
-    // [보안 업데이트] activeUid(내 UID 또는 연동된 어머니 UID) 경로 사용
     const schedulesRef = collection(db, 'artifacts', appId, 'users', activeUid, 'schedules');
-    
     const unsubscribe = onSnapshot(schedulesRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSchedules(data);
@@ -260,23 +248,22 @@ function App() {
     return () => unsubscribe();
   }, [activeUid, db]);
 
-  // 구글 로그인 처리 함수
+  // 구글 로그인 처리
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Google Login Error:", error);
-      alert("로그인 중 오류가 발생했습니다. 팝업 차단을 해제하거나 Vercel 배포 환경에서 시도해주세요.");
+      alert("로그인 중 오류가 발생했습니다. 팝업 차단을 해제하거나 환경을 확인해 주세요.");
     }
   };
 
-  // 로그아웃 처리 함수
   const handleLogout = async () => {
     if (confirm("로그아웃 하시겠습니까?")) {
       try {
         await signOut(auth);
-        setSchedules([]); // 데이터 초기화
+        setSchedules([]);
       } catch (error) {
         console.error("Logout Error:", error);
       }
@@ -301,7 +288,6 @@ function App() {
         isDeleted: false 
       };
 
-      // 개인 비공개 경로 적용
       if (editingId) {
         scheduleData.updatedAt = serverTimestamp();
         await updateDoc(doc(db, 'artifacts', appId, 'users', activeUid, 'schedules', editingId), scheduleData);
@@ -359,35 +345,6 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const activeSchedules = useMemo(() => {
-    return schedules
-      .filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr)
-      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
-  }, [schedules, todayStr]);
-
-  const pastSchedules = useMemo(() => {
-    return schedules
-      .filter(s => !s.isDeleted && (s.endDate || s.startDate) < todayStr)
-      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-  }, [schedules, todayStr]);
-
-  const trashedSchedules = useMemo(() => {
-    return schedules
-      .filter(s => s.isDeleted)
-      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-  }, [schedules]);
-
-  // 달력 모드에서 선택된 날짜의 일정 필터링
-  const calendarFilteredSchedules = useMemo(() => {
-    return schedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate);
-  }, [schedules, selectedDate]);
-
-  let displaySchedules = showTrash ? trashedSchedules : activeSchedules;
-  if (isCalendarView && !showTrash) {
-    displaySchedules = calendarFilteredSchedules;
-  }
-
-  // 연동 기능 핸들러
   const handleCopyCode = () => {
     const textArea = document.createElement("textarea");
     textArea.value = user.uid;
@@ -397,9 +354,7 @@ function App() {
       document.execCommand('copy');
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
-    } catch (err) {
-      console.error('Copy failed', err);
-    }
+    } catch (err) { console.error('Copy failed', err); }
     document.body.removeChild(textArea);
   };
 
@@ -419,7 +374,31 @@ function App() {
     }
   };
 
-  // 달력 렌더링 로직 (상하 폭 압축 적용)
+  const activeSchedules = useMemo(() => {
+    return schedules
+      .filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr)
+      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+  }, [schedules, todayStr]);
+
+  const pastSchedules = useMemo(() => {
+    return schedules
+      .filter(s => !s.isDeleted && (s.endDate || s.startDate) < todayStr)
+      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+  }, [schedules, todayStr]);
+
+  const trashedSchedules = useMemo(() => {
+    return schedules
+      .filter(s => s.isDeleted)
+      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+  }, [schedules]);
+
+  const calendarFilteredSchedules = useMemo(() => {
+    return schedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate);
+  }, [schedules, selectedDate]);
+
+  let displaySchedules = showTrash ? trashedSchedules : activeSchedules;
+  if (isCalendarView && !showTrash) displaySchedules = calendarFilteredSchedules;
+
   const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -476,7 +455,6 @@ function App() {
     );
   };
 
-  // 공통 입력 폼 컴포넌트
   const renderScheduleForm = (onCancel) => (
     <form onSubmit={handleAddOrEditSchedule} className="space-y-4 md:space-y-6">
       <div className="space-y-2">
@@ -488,7 +466,6 @@ function App() {
           autoFocus required
         />
       </div>
-
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">장소</label>
@@ -499,7 +476,6 @@ function App() {
           <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
         </div>
       </div>
-
       <div className="space-y-2">
          <label className="text-xs font-black text-slate-400 ml-2">메모</label>
          <textarea 
@@ -508,14 +484,12 @@ function App() {
           className="w-full p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] border-none font-bold text-lg shadow-inner resize-none" 
         />
       </div>
-
       <div className="flex items-center justify-between p-4 bg-[#F7F9FB] dark:bg-slate-700 rounded-[1.2rem]">
         <span className="font-black text-slate-700 dark:text-slate-200 text-base md:text-lg">여러 날 일정</span>
         <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-all ${isRange ? 'bg-[#508A12]' : 'bg-slate-300 dark:bg-slate-500'}`}>
           <div className={`absolute top-1 bg-white w-6 h-6 rounded-full transition-transform ${isRange ? 'translate-x-7' : 'translate-x-1'} shadow-md`} />
         </button>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="text-xs font-black text-slate-400 ml-2">시작 날짜</label>
@@ -528,40 +502,27 @@ function App() {
           </div>
         )}
       </div>
-      
       <div className="flex gap-2 pt-2">
         {onCancel && (
-          <button 
-            type="button" 
-            onClick={() => { resetForm(); onCancel(); }} 
-            className="flex-1 py-4 md:py-5 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-300 rounded-[1.5rem] font-black text-lg active:scale-95 transition-all"
-          >
-            취소
-          </button>
+          <button type="button" onClick={() => { resetForm(); onCancel(); }} className="flex-1 py-4 md:py-5 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-300 rounded-[1.5rem] font-black text-lg active:scale-95 transition-all">취소</button>
         )}
-        <button 
-          type="submit" 
-          disabled={isSaving}
-          className="flex-[2] py-4 md:py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50"
-        >
+        <button type="submit" disabled={isSaving} className="flex-[2] py-4 md:py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50">
           {isSaving ? '저장 중...' : (editingId ? '일정 수정완료' : '새 일정 등록')}
         </button>
       </div>
     </form>
   );
 
-  // Vercel 환경 변수 오류 화면
   if (!app) return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center">
       <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-xl max-w-md w-full border-t-[12px] border-red-500">
         <AlertTriangle className="text-red-500 mx-auto mb-4" size={56} />
         <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-4">설정 확인 필요</h1>
-        <p className="text-slate-500 dark:text-slate-300 font-bold mb-2">Vercel 환경 변수 이름: <code className="bg-slate-100 dark:bg-slate-700 px-1">VITE_FIREBASE_CONFIG</code></p>
       </div>
     </div>
   );
 
-  // [보안 업데이트] 로그인 화면 렌더링
+  // 로그인 화면
   if (!isAuthChecking && !user) {
     return (
       <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center transition-colors duration-300">
@@ -569,8 +530,7 @@ function App() {
           <CalendarDays className="text-[#508A12] mx-auto mb-6" size={72} strokeWidth={2} />
           <h1 className="text-4xl font-black text-slate-800 dark:text-white mb-3 tracking-tighter">나의 일정</h1>
           <p className="text-slate-500 dark:text-slate-400 font-bold mb-10 text-lg leading-relaxed">
-            나만의 안전한 비공개 캘린더<br/>
-            <span className="text-sm opacity-80">구글 계정으로 안전하게 동기화됩니다.</span>
+            나만의 안전한 비공개 캘린더<br/><span className="text-sm opacity-80">구글 계정으로 안전하게 동기화됩니다.</span>
           </p>
           <button
             onClick={handleGoogleLogin}
@@ -584,7 +544,6 @@ function App() {
     );
   }
 
-  // 데이터 로딩 전
   if (isAuthChecking) {
     return (
       <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center">
@@ -593,50 +552,48 @@ function App() {
     );
   }
 
-  // 메인 앱 렌더링
+  // 메인 앱
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      {/* 상단 헤더: 공간 최적화 및 좌측 정렬 완벽 일치, 1줄 강제 처리 */}
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 md:py-4 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-1">
-          {/* 글자가 화면 크기에 상관없이 1줄로 최대한 크게 유지되도록 조절 */}
-          <div className="flex-1 overflow-hidden pr-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(17px,5.5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-2">
+        <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-2">
+          <div className="flex-1 overflow-hidden pr-1 flex items-center gap-2">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(17px,5.5vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
-              {linkedUid && <span className="inline-block bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 text-xs md:text-sm font-bold px-2 py-1 rounded-lg align-middle border border-orange-200 dark:border-orange-800">가족 연동됨</span>}
             </p>
+            {linkedUid && <span className="hidden sm:inline-block bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 text-[10px] md:text-sm font-bold px-2 py-0.5 rounded-lg border border-orange-200 dark:border-orange-800 whitespace-nowrap">가족 연동됨</span>}
           </div>
+          
           <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
-            {/* 눈에 잘 띄되, 왼쪽 글자가 차지할 수 있는 폭을 최대한 양보하도록 버튼 크기/여백 축소 */}
+            {/* 홈/달력 버튼 */}
             <button 
               onClick={() => {
                 setIsCalendarView(!isCalendarView);
                 setSelectedDate(todayStr); 
-                setCalendarMonth(new Date()); // 달력 누를 때 항상 오늘 날짜의 달로 초기화
+                setCalendarMonth(new Date());
               }}
-              className="flex items-center justify-center min-w-[60px] md:min-w-[80px] px-3 py-2 md:px-6 md:py-3 bg-[#508A12] text-white rounded-full font-black text-[15px] md:text-xl active:scale-95 transition-all shadow-md flex-shrink-0"
+              className="flex items-center justify-center min-w-[50px] md:min-w-[80px] px-3 py-1.5 md:px-6 md:py-3 bg-[#508A12] text-white rounded-full font-black text-[14px] md:text-xl active:scale-95 transition-all shadow-md"
             >
               {isCalendarView ? '홈' : '달력'}
             </button>
             
-            {/* 가족 연동 설정 버튼 */}
+            {/* 가족연동 버튼 - 텍스트 명시적으로 표시 */}
             <button 
               onClick={() => setShowSettings(true)}
-              className={`flex items-center justify-center p-2.5 md:px-4 md:py-2.5 rounded-full font-black text-sm transition-all ${linkedUid ? 'bg-orange-100 text-orange-600 hover:bg-orange-200 dark:bg-orange-900/50 dark:text-orange-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200'}`}
+              className={`flex items-center justify-center px-3 py-1.5 md:px-4 md:py-2.5 rounded-full font-black transition-all ${linkedUid ? 'bg-orange-100 text-orange-600 hover:bg-orange-200 dark:bg-orange-900/50 dark:text-orange-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200'}`}
               title="가족 연동"
             >
-              <Users size={20} />
-              <span className="hidden md:inline ml-1.5">{linkedUid ? '연동됨' : '가족연동'}</span>
+              <Users size={16} className="md:w-5 md:h-5" />
+              <span className="ml-1 text-[12px] md:text-sm whitespace-nowrap">{linkedUid ? '연동됨' : '가족연동'}</span>
             </button>
 
-            {/* 로그아웃 버튼 (모바일에서는 아이콘만, PC에서는 글자까지) */}
+            {/* 로그아웃 버튼 */}
             <button 
               onClick={handleLogout}
-              className="flex items-center justify-center p-2.5 md:px-4 md:py-2.5 rounded-full font-black text-sm transition-all bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200"
+              className="flex items-center justify-center p-2 md:px-4 md:py-2.5 rounded-full transition-all bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-200"
               title="로그아웃"
             >
-              <LogOut size={20} />
-              <span className="hidden md:inline ml-1.5">로그아웃</span>
+              <LogOut size={18} className="md:w-5 md:h-5" />
             </button>
           </div>
         </div>
@@ -644,7 +601,7 @@ function App() {
 
       <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 flex flex-col lg:flex-row gap-[clamp(0.75rem,2.5vh,1.5rem)]">
         
-        {/* PC 전용 */}
+        {/* PC 전용 폼 & 휴지통 토글 */}
         <aside className="hidden lg:block w-[380px] flex-shrink-0">
           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[100px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
             <div className="flex justify-between items-center mb-4">
@@ -656,7 +613,6 @@ function App() {
             {renderScheduleForm(editingId ? resetForm : null)}
           </div>
           
-          {/* PC 전용 휴지통 토글 영역 */}
           <div className="mt-4 text-right">
              <button 
               onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
@@ -673,7 +629,6 @@ function App() {
         <main className="flex-1 w-full">
           {isCalendarView && !showTrash && renderCalendar()}
 
-          {/* 달력에서 날짜를 선택했을 때 해당 날짜를 알려주는 제목 */}
           {isCalendarView && !showTrash && (
             <div className="mb-2 mt-1 px-1 flex justify-between items-end">
               <h3 className="text-[1.1rem] md:text-xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-2.5">
@@ -696,7 +651,6 @@ function App() {
                          {formatDateWithDay(item.startDate)}
                          {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
-                       {/* D-Day 배지 추가 */}
                        {!showTrash && (
                          <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
                            {getDDay(item.startDate)}
@@ -720,7 +674,6 @@ function App() {
                      )}
                   </div>
 
-                  {/* PC에서만 보이는 작업 버튼 */}
                   <div className="hidden lg:flex flex-col gap-2 self-start">
                     {!showTrash ? (
                       <>
@@ -756,7 +709,6 @@ function App() {
             </div>
           )}
 
-          {/* 지난 일정 보기 */}
           {!loading && !showTrash && !isCalendarView && (
             <div className="mt-5 mb-4 flex flex-col items-center">
               <button 
@@ -777,7 +729,6 @@ function App() {
                              {formatDateWithDay(item.startDate)}
                              {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                            </span>
-                           {/* 과거 일정도 D-Day 태그 (마이너스로 표시됨) */}
                            <span className="font-black text-[clamp(0.8rem,3vw,0.9rem)] px-2 py-0.5 rounded-lg bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400">
                              {getDDay(item.startDate)}
                            </span>
@@ -812,9 +763,9 @@ function App() {
       {/* 가족 연동 설정 모달 */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-all">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-lg rounded-[2.5rem] p-6 md:p-8 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-               <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+               <h2 className="text-xl md:text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
                  <Users className="text-[#508A12]" size={28} /> 가족 계정 연동
                </h2>
                <button onClick={() => setShowSettings(false)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-500 dark:text-slate-300 active:scale-90 transition-all">
@@ -823,26 +774,26 @@ function App() {
             </div>
 
             <div className="space-y-6">
-              <div className="bg-slate-50 dark:bg-slate-700/50 p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
+              <div className="bg-slate-50 dark:bg-slate-700/50 p-4 md:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
                 <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">내 연동 코드</h3>
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-                  어머니의 핸드폰 앱에서 아래 코드를 복사해, 질문자님의 핸드폰/PC에 입력하시면 일정을 함께 관리할 수 있습니다.
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 leading-relaxed break-keep">
+                  어머니의 핸드폰 앱에서 아래 코드를 <span className="text-[#508A12]">[복사]</span>하여, 가족(질문자님)의 PC에 붙여넣으시면 일정을 실시간으로 공유할 수 있습니다.
                 </p>
                 <div className="flex gap-2">
-                  <input type="text" readOnly value={user?.uid || ''} className="flex-1 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-sm px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 outline-none" />
-                  <button onClick={handleCopyCode} className="px-4 bg-[#508A12] text-white rounded-xl font-bold flex items-center gap-1.5 hover:bg-[#3E6B0E] transition-colors">
-                    {copySuccess ? <><Check size={18}/> 복사됨</> : <><Copy size={18}/> 복사</>}
+                  <input type="text" readOnly value={user?.uid || ''} className="flex-1 w-0 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono text-sm px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 outline-none" />
+                  <button onClick={handleCopyCode} className="px-4 bg-[#508A12] text-white rounded-xl font-bold flex items-center gap-1.5 hover:bg-[#3E6B0E] transition-colors whitespace-nowrap">
+                    {copySuccess ? <><Check size={18}/> 완료</> : <><Copy size={18}/> 복사</>}
                   </button>
                 </div>
               </div>
 
-              <div className="bg-slate-50 dark:bg-slate-700/50 p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
-                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">가족의 일정 관리하기</h3>
+              <div className="bg-slate-50 dark:bg-slate-700/50 p-4 md:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-600">
+                <h3 className="font-black text-slate-700 dark:text-slate-200 mb-2">어머니 일정 관리하기</h3>
                 
                 {linkedUid ? (
                   <div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4">
-                      현재 가족의 일정과 연동되어 있습니다.<br/>(코드: <span className="font-mono">{linkedUid.slice(0,8)}...</span>)
+                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-4 break-keep">
+                      현재 가족의 일정과 완벽하게 연동되어 있습니다.<br/>(코드: <span className="font-mono text-[#508A12]">{linkedUid.slice(0,8)}...</span>)
                     </p>
                     <button onClick={handleUnlink} className="w-full py-4 bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 font-black rounded-xl hover:bg-red-200 transition-colors">
                       연동 해제하고 내 일정 보기
@@ -850,8 +801,8 @@ function App() {
                   </div>
                 ) : (
                   <div>
-                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3">
-                      가족(어머니)의 핸드폰에서 복사한 '연동 코드'를 붙여넣으세요.
+                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-3 break-keep">
+                      어머니의 핸드폰에서 복사한 '연동 코드'를 아래 빈칸에 붙여넣으세요.
                     </p>
                     <input 
                       type="text" 
@@ -861,7 +812,7 @@ function App() {
                       className="w-full bg-white dark:bg-slate-800 text-slate-800 dark:text-white px-4 py-4 rounded-xl border border-slate-200 dark:border-slate-600 mb-3 outline-none focus:border-[#508A12]"
                     />
                     <button onClick={handleLinkAccount} disabled={!linkInput.trim()} className="w-full py-4 bg-slate-800 text-white dark:bg-slate-600 font-black rounded-xl hover:bg-slate-700 transition-colors disabled:opacity-50">
-                      가족 일정 연동하기
+                      일정 연동 시작하기
                     </button>
                   </div>
                 )}
@@ -893,5 +844,3 @@ if (document.readyState === 'loading') {
 } else {
   initRender();
 }
-
-export default App;
