@@ -21,80 +21,75 @@ import {
   Plus, 
   Trash2, 
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 
 /**
  * [버전 정보]
- * v1.0.8 (2024-05-24)
- * - 환경 변수 접근 방식 호환성 개선: import.meta 미지원 환경 대응
- * - 디버그 화면 출력 로직 안정화
- * - Firebase 초기화 및 오류 처리 강화
+ * v1.1.0 (2024-05-24)
+ * - 빌드 환경 호환성 개선: import.meta.env 접근 방식 수정 (ES2015 대응)
+ * - 환경 변수 감지 로직 안정화 및 디버깅 UI 수정
  */
 
 // 1. Firebase 설정값 안전하게 추출 및 파싱
 const getFirebaseConfig = () => {
-  try {
-    // 다양한 환경에서의 변수 접근 시도 (Vite, Vercel, Node 등)
-    let envSource = '';
-    
-    // 1. 전역 변수 확인
-    if (typeof __firebase_config !== 'undefined') {
-      envSource = __firebase_config;
-    } 
-    // 2. Vite 환경 변수 확인 (안전한 접근)
-    else if (typeof process !== 'undefined' && process.env && process.env.VITE_FIREBASE_CONFIG) {
-      envSource = process.env.VITE_FIREBASE_CONFIG;
-    }
-    // 3. import.meta 안전 확인
-    else {
-      try {
-        // @ts-ignore
-        if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_FIREBASE_CONFIG) {
-          // @ts-ignore
-          envSource = import.meta.env.VITE_FIREBASE_CONFIG;
+  const parse = (raw) => {
+    if (!raw || raw === '{}') return null;
+    try {
+      if (typeof raw === 'string') {
+        // JS 코드 형태 제거 (const config = ...)
+        let cleaned = raw.replace(/(const|let|var)\s+\w+\s*=\s*/g, '').trim().replace(/;$/, '');
+        if (cleaned.includes('{')) {
+          cleaned = cleaned.substring(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1);
         }
-      } catch (e) {
-        // import.meta를 사용할 수 없는 환경
+        try {
+          return JSON.parse(cleaned);
+        } catch (e) {
+          // 따옴표 없는 키 보정
+          const fixed = cleaned
+            .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+            .replace(/'/g, '"')
+            .replace(/,\s*([\]}])/g, '$1');
+          return JSON.parse(fixed);
+        }
       }
+      return raw;
+    } catch (err) {
+      console.error("Config Parsing Error:", err);
+      return null;
     }
+  };
 
-    if (!envSource || envSource === '{}') return {};
-
-    let raw = envSource;
-    if (typeof raw === 'string') {
-      // 주석 및 불필요한 코드 제거
-      raw = raw.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1');
-      raw = raw.replace(/(const|let|var)\s+\w+\s*=\s*/g, '');
-      raw = raw.trim().replace(/;$/, '');
-      
-      if (raw.includes('{')) {
-        const start = raw.indexOf('{');
-        const end = raw.lastIndexOf('}') + 1;
-        raw = raw.substring(start, end);
-      }
-
-      try {
-        return JSON.parse(raw);
-      } catch (e) {
-        // 비표준 객체 문자열 보정
-        const fixedJson = raw
-          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
-          .replace(/'/g, '"')
-          .replace(/,\s*([\]}])/g, '$1');
-        return JSON.parse(fixedJson);
-      }
-    }
-    return raw;
-  } catch (err) {
-    return {};
+  // 모든 가능한 환경 변수 소스 확인
+  let source = null;
+  
+  // 1. 전역 변수 (가장 높은 우선순위)
+  if (typeof __firebase_config !== 'undefined') {
+    source = __firebase_config;
   }
+  
+  // 2. process.env (Vercel/Node 환경)
+  if (!source && typeof process !== 'undefined' && process.env) {
+    source = process.env.VITE_FIREBASE_CONFIG || process.env.__firebase_config;
+  }
+
+  // 3. import.meta.env (Vite 환경) - 런타임 체크로 빌드 에러 방지
+  if (!source) {
+    try {
+      // 직접 참조 대신 윈도우 객체나 글로벌 스코프를 통한 간접 참조 시도
+      const meta = (window && window.importMeta) || {};
+      source = (meta.env && meta.env.VITE_FIREBASE_CONFIG);
+    } catch (e) {}
+  }
+
+  return parse(source);
 };
 
 const firebaseConfig = getFirebaseConfig();
 
 // 초기화
-const app = firebaseConfig && firebaseConfig.apiKey ? initializeApp(firebaseConfig) : null;
+const app = firebaseConfig?.apiKey ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-schedule-app';
@@ -123,7 +118,7 @@ function App() {
           await signInAnonymously(auth);
         }
       } catch (error) {
-        console.error("인증 실패:", error);
+        console.error("Auth Fail:", error);
       }
     };
     initAuth();
@@ -137,10 +132,7 @@ function App() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSchedules(data.sort((a, b) => new Date(`${a.date} ${a.time || '00:00'}`) - new Date(`${b.date} ${b.time || '00:00'}`)));
       setLoading(false);
-    }, (err) => {
-      console.error("데이터 로드 에러:", err);
-      setLoading(false);
-    });
+    }, () => setLoading(false));
     return () => unsubscribe();
   }, [user]);
 
@@ -165,42 +157,44 @@ function App() {
     return schedules.filter(s => s.date >= todayStr);
   }, [schedules]);
 
-  // 설정 오류 시 안내 화면
-  if (!firebaseConfig || !firebaseConfig.apiKey) {
-    const hasConfig = !!firebaseConfig;
+  // 설정 오류 화면
+  if (!firebaseConfig?.apiKey) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
-        <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl max-w-md w-full border-t-[12px] border-red-500 text-center">
-          <div className="bg-red-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <AlertTriangle className="text-red-500" size={40} />
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-[3rem] p-10 shadow-2xl max-w-md w-full border-t-[16px] border-red-500 text-center">
+          <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
+            <AlertTriangle className="text-red-500" size={48} />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800 mb-4">설정 확인 필요</h1>
-          <p className="text-slate-600 leading-relaxed mb-6 text-lg">
-            Firebase 설정값이 감지되지 않았습니다. <br/>
-            <strong>Vercel 환경 변수를 다시 확인해 주세요.</strong>
-          </p>
+          <h1 className="text-3xl font-black text-slate-800 mb-6">설정 확인 필요</h1>
           
-          <div className="space-y-4 text-left mb-8">
-            <div className="flex gap-3 bg-slate-50 p-4 rounded-2xl">
-              <span className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5 font-bold">1</span>
-              <div>
-                <p className="text-slate-700 font-bold">이름 확인</p>
-                <p className="text-slate-500 text-sm">환경 변수 이름을 <code className="bg-white px-1 border rounded font-mono text-indigo-600">VITE_FIREBASE_CONFIG</code>로 설정하세요.</p>
-              </div>
+          <div className="text-left space-y-6 mb-10">
+            <div className="bg-indigo-50 p-5 rounded-3xl border border-indigo-100">
+              <p className="font-bold text-indigo-900 mb-2 flex items-center gap-2 text-lg">
+                <span className="bg-indigo-600 text-white w-7 h-7 rounded-full flex items-center justify-center text-sm font-black">1</span>
+                변수 이름 수정
+              </p>
+              <p className="text-indigo-700 text-base leading-relaxed">
+                Vercel 대시보드에서 <code className="bg-white px-2 py-0.5 rounded font-mono font-bold">__firebase_config</code> 이름을 <br/>
+                <strong className="text-indigo-900 underline underline-offset-4 font-black text-lg">VITE_FIREBASE_CONFIG</strong>로 변경해 주세요.
+              </p>
             </div>
-            <div className="flex gap-3 bg-slate-50 p-4 rounded-2xl">
-              <span className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5 font-bold">2</span>
-              <div>
-                <p className="text-slate-700 font-bold">재배포 실행</p>
-                <p className="text-slate-500 text-sm">설정 변경 후 Vercel에서 <strong>Redeploy</strong> 버튼을 눌러야 반영됩니다.</p>
-              </div>
+
+            <div className="bg-amber-50 p-5 rounded-3xl border border-amber-100">
+              <p className="font-bold text-amber-900 mb-2 flex items-center gap-2 text-lg">
+                <span className="bg-amber-600 text-white w-7 h-7 rounded-full flex items-center justify-center text-sm font-black">2</span>
+                재배포(Redeploy) 실행
+              </p>
+              <p className="text-amber-700 text-base leading-relaxed">
+                이름 변경 후, Vercel의 <strong>Deployments</strong> 메뉴에서 가장 최근 항목 우측의 <strong>Redeploy</strong> 버튼을 눌러야 앱에 반영됩니다.
+              </p>
             </div>
           </div>
 
-          <div className="bg-slate-900 p-4 rounded-xl text-left overflow-hidden">
-            <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">System Status</p>
-            <div className="text-[11px] font-mono text-emerald-400">
-              {hasConfig ? "> Config Object Found (Missing API Key)" : "> No Configuration Detected"}
+          <div className="pt-4 border-t border-slate-100">
+            <p className="text-slate-400 text-sm font-medium mb-2 uppercase tracking-widest">Debug Status</p>
+            <div className="bg-slate-900 text-emerald-400 p-4 rounded-2xl font-mono text-xs text-left shadow-inner">
+               &gt; Value Status: {typeof __firebase_config === 'undefined' ? "NOT DETECTED" : "DETECTED"}
+               <br/>&gt; Config Loaded: {firebaseConfig ? "YES" : "NO"}
             </div>
           </div>
         </div>
@@ -210,40 +204,40 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
-      <header className="bg-indigo-600 text-white p-6 pt-10 rounded-b-[2.5rem] shadow-lg sticky top-0 z-10">
-        <div className="max-w-md mx-auto">
-          <p className="text-indigo-100 text-lg font-medium mb-1 text-center">어머니의 행복한 하루</p>
-          <h1 className="text-3xl font-bold leading-tight text-center">{dateString}</h1>
+      <header className="bg-indigo-600 text-white p-8 pt-12 rounded-b-[3rem] shadow-xl sticky top-0 z-10">
+        <div className="max-w-md mx-auto text-center">
+          <p className="text-indigo-100 text-xl font-medium mb-2">어머니의 행복한 하루</p>
+          <h1 className="text-3xl font-black leading-tight tracking-tight">{dateString}</h1>
         </div>
       </header>
 
-      <main className="max-w-md mx-auto px-4 mt-8">
+      <main className="max-w-md mx-auto px-5 mt-10">
         {loading ? (
           <div className="text-center py-24">
-            <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-indigo-600 border-t-transparent mb-4"></div>
-            <p className="text-slate-400 font-bold text-xl">정보를 가져오고 있습니다...</p>
+            <RefreshCw className="mx-auto text-indigo-400 animate-spin mb-6" size={48} />
+            <p className="text-slate-400 font-black text-2xl">정보를 가져오는 중...</p>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-8">
             {categorizedSchedules.length === 0 ? (
-              <div className="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-slate-200">
-                <Calendar className="mx-auto text-slate-200 mb-4" size={48} />
-                <p className="text-slate-400 text-xl font-medium">새로운 일정을 기다리고 있어요</p>
+              <div className="bg-white rounded-[2.5rem] p-16 text-center border-4 border-dotted border-slate-200 shadow-sm">
+                <Calendar className="mx-auto text-slate-100 mb-6" size={64} />
+                <p className="text-slate-400 text-2xl font-bold">등록된 일정이<br/>없습니다</p>
               </div>
             ) : (
               categorizedSchedules.map((item) => (
-                <div key={item.id} className="bg-white rounded-3xl p-6 shadow-md border-l-8 border-indigo-500 transition-all active:scale-95">
-                  <div className="flex justify-between items-start gap-4">
+                <div key={item.id} className="bg-white rounded-[2.5rem] p-8 shadow-md border-l-[12px] border-indigo-500 transition-all active:scale-95">
+                  <div className="flex justify-between items-start gap-6">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-bold">
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-base font-black">
                           {item.date === new Date().toISOString().split('T')[0] ? '오늘' : item.date.slice(5).replace('-', '월 ') + '일'}
                         </span>
-                        {item.time && <span className="flex items-center text-slate-500 gap-1 font-bold text-lg"><Clock size={18}/> {item.time}</span>}
+                        {item.time && <span className="flex items-center text-slate-500 gap-1.5 font-black text-xl"><Clock size={22} className="text-indigo-400"/> {item.time}</span>}
                       </div>
-                      <h3 className="text-2xl font-bold text-slate-800 leading-snug">{item.title}</h3>
+                      <h3 className="text-3xl font-black text-slate-800 leading-tight">{item.title}</h3>
                     </div>
-                    <button onClick={() => handleDelete(item.id)} className="p-2 text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={26}/></button>
+                    <button onClick={() => handleDelete(item.id)} className="p-3 text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={32}/></button>
                   </div>
                 </div>
               ))
@@ -252,25 +246,34 @@ function App() {
         )}
       </main>
 
-      <div className="fixed bottom-6 right-6 flex flex-col items-end gap-4 max-w-md w-full px-6 left-1/2 -translate-x-1/2 pointer-events-none">
+      <div className="fixed bottom-8 right-8 flex flex-col items-end gap-6 max-w-md w-full px-8 left-1/2 -translate-x-1/2 pointer-events-none">
         {showAddForm && (
-          <div className="bg-white w-full rounded-3xl shadow-2xl p-6 mb-2 border border-slate-100 pointer-events-auto animate-in slide-in-from-bottom-4 duration-300">
-            <h2 className="text-xl font-bold mb-4 text-slate-700">새 일정 추가</h2>
-            <form onSubmit={handleAddSchedule} className="space-y-4">
-              <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="어떤 일정인가요?" className="w-full text-xl p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-indigo-500 shadow-inner" autoFocus />
-              <div className="grid grid-cols-2 gap-3">
-                <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="p-4 bg-slate-50 rounded-2xl border-none text-lg shadow-inner" />
-                <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="p-4 bg-slate-50 rounded-2xl border-none text-lg shadow-inner" />
+          <div className="bg-white w-full rounded-[3rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] p-8 mb-4 border border-slate-100 pointer-events-auto animate-in slide-in-from-bottom-10 duration-500 ease-out">
+            <h2 className="text-2xl font-black mb-6 text-slate-800">새 일정 적기</h2>
+            <form onSubmit={handleAddSchedule} className="space-y-6">
+              <div>
+                <label className="block text-slate-400 font-bold mb-2 ml-1">일정 내용</label>
+                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="예: 병원 가는 날" className="w-full text-2xl p-5 bg-slate-50 rounded-[1.5rem] border-none focus:ring-4 focus:ring-indigo-100 shadow-inner font-bold" autoFocus />
               </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowAddForm(false)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-bold text-lg text-slate-500">취소</button>
-                <button type="submit" className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-lg">저장하기</button>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-400 font-bold mb-2 ml-1">날짜</label>
+                  <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none text-xl font-bold shadow-inner" />
+                </div>
+                <div>
+                  <label className="block text-slate-400 font-bold mb-2 ml-1">시간</label>
+                  <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-5 bg-slate-50 rounded-[1.5rem] border-none text-xl font-bold shadow-inner" />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowAddForm(false)} className="flex-1 py-5 bg-slate-100 rounded-[1.5rem] font-black text-xl text-slate-500 active:scale-95 transition-transform">취소</button>
+                <button type="submit" className="flex-[2] py-5 bg-indigo-600 text-white rounded-[1.5rem] font-black text-xl shadow-lg shadow-indigo-200 active:scale-95 transition-transform">일정 저장</button>
               </div>
             </form>
           </div>
         )}
-        <button onClick={() => setShowAddForm(!showAddForm)} className="pointer-events-auto w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center shadow-2xl transition-all active:scale-90 z-20 hover:bg-indigo-700">
-          <Plus size={32} color="white" style={{ transform: showAddForm ? 'rotate(45deg)' : 'none', transition: 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
+        <button onClick={() => setShowAddForm(!showAddForm)} className="pointer-events-auto w-20 h-20 rounded-full bg-indigo-600 flex items-center justify-center shadow-[0_10px_30px_rgba(79,70,229,0.5)] transition-all active:scale-90 z-20 hover:bg-indigo-700">
+          <Plus size={48} color="white" style={{ transform: showAddForm ? 'rotate(45deg)' : 'none', transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' }} />
         </button>
       </div>
     </div>
