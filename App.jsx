@@ -1,10 +1,8 @@
 /**
  * [버전 정보]
- * v1.30.0 (2026-03-28)
- * - 우리집 정보(가족 정보) 레이아웃 압축: 화면에 더 많은 정보가 들어오도록 카드 상하 패딩(p) 및 요소 간 여백(space-y, mb) 대폭 축소
- * - 주소 텍스트 크기 조정: 주소가 너무 커서 3~4줄로 낭비되지 않도록 글자 크기를 줄여 1~2줄로 깔끔하게 표시되게 수정
- * - 가족 연락처 추가: 기존 3명에서 최대 4명까지 등록할 수 있도록 상태 및 입력 폼 확장
- * - 타이틀 수정: '기억할 정보 (가족 생일 등)' ➡️ '기억할 정보' 로 단순화
+ * v1.31.0 (2026-03-28)
+ * - 모바일 헤더 레이아웃 미세 조정: 큰 시스템 폰트 환경에서 상단 날짜가 '...'으로 잘리는 현상을 방지하기 위해 '집', '달력' 버튼의 좌우 패딩(px)을 축소하고 폰트 가변 크기(vw)를 재조정
+ * - 전체적인 반응형 안정성 강화: 버튼 텍스트 줄바꿈 방지(whitespace-nowrap) 추가
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -814,29 +812,28 @@ export default function App() {
   // 메인 앱
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-3 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-3 md:px-6 flex justify-between items-center gap-1">
-          {/* 상단 날짜 폰트 사이즈를 더 키울 수 있도록 넓은 범위(clamp) 허용 */}
+      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-2.5 md:py-3 transition-colors duration-300">
+        <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
+          {/* 상단 날짜 폰트 사이즈를 더 키울 수 있도록 넓은 범위(clamp) 허용하되, 잘림 방지를 위해 vw 수치 미세조정 */}
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,6.5vw,40px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(15px,5.2vw,34px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
           
-          <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
             {!isFamilyView && (
               <button 
                 onClick={() => {
                   setIsFamilyView(true);
                   setIsCalendarView(false);
                 }}
-                className="flex items-center justify-center min-w-[36px] px-3.5 py-1.5 md:px-5 md:py-2.5 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-sm border border-[#508A12]/20"
+                className="flex items-center justify-center px-2.5 py-1.5 md:px-5 md:py-2.5 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-sm border border-[#508A12]/20 whitespace-nowrap"
               >
                 집
               </button>
             )}
 
-            {/* 글자를 "홈으로" -> "홈", "달력보기" -> "달력" 으로 축소하여 여백 확보 */}
             <button 
               onClick={() => {
                 if (isFamilyView) {
@@ -847,7 +844,7 @@ export default function App() {
                   setCalendarMonth(new Date());
                 }
               }}
-              className="flex items-center justify-center min-w-[36px] px-3.5 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[14px] md:text-lg active:scale-95 transition-all shadow-md"
+              className="flex items-center justify-center px-2.5 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-md whitespace-nowrap"
             >
               {isFamilyView ? '홈' : isCalendarView ? '홈' : '달력'}
             </button>
@@ -937,7 +934,7 @@ export default function App() {
                     <div className="hidden lg:flex flex-col gap-2 self-start">
                       {!showTrash ? (
                         <>
-                          <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
+                          <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-50 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
                           <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-50 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
                         </>
                       ) : (
