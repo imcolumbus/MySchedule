@@ -1,9 +1,9 @@
 /**
  * [버전 정보]
- * v1.16.0 (2026-03-28)
- * - 달력 상하 폭 최적화: 달력 위아래 여백과 날짜 칸 높이를 줄여, 하단의 일정이 스크롤 없이도 한눈에 더 잘 들어오도록 개선
- * - 가독성 및 명도 대비 극대화: 딥그린(#508A12) 테마 유지
- * - 모바일 환경 최적화: 시니어 사용자를 위해 터치 영역과 글씨를 시원하게 키움
+ * v1.17.0 (2026-03-28)
+ * - 공간 활용 최적화: 일정 카드 내 텍스트 간격 및 메모 영역의 상하 여백(Padding/Margin)을 조절하여 한 화면에 더 많은 일정이 보이도록 개선
+ * - 가독성 유지: 글씨 크기는 어르신들이 보기 편한 수준을 유지하되, 과도한 줄 간격(Line-height)을 줄여 콤팩트한 뷰 제공
+ * - 딥그린(#508A12) 테마 및 다크 모드 지원 유지
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -315,7 +315,6 @@ function App() {
            <h2 className="text-2xl md:text-4xl font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
            <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-2 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={28} className="dark:text-white"/></button>
          </div>
-         {/* 요일 크기를 큼직하게 유지하되 상하 여백 축소 */}
          <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2 md:mb-3 text-center">
            {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
              <div key={i} className={`text-lg md:text-2xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
@@ -498,32 +497,32 @@ function App() {
               <RefreshCw className="animate-spin mx-auto text-[#508A12] opacity-50" size={48} />
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5">
+            <div className="grid grid-cols-1 gap-4">
               {displaySchedules.map((item) => (
-                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.8rem] md:rounded-[2rem] p-5 md:p-6 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-4 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
+                <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.5rem] md:rounded-[1.8rem] p-4 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-3 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
                   <div className="flex-1 w-full">
-                     {/* 딥그린 알약 형태의 날짜/요일 (폰트 확대) */}
-                     <div className="mb-4">
-                       <span className={`inline-block text-white font-black text-[1.4rem] md:text-2xl tracking-tight px-5 py-2.5 rounded-[1.2rem] shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
+                     {/* 딥그린 알약 형태의 날짜/요일 (상하 여백 및 패딩 축소) */}
+                     <div className="mb-2">
+                       <span className={`inline-block text-white font-black text-[1.2rem] md:text-xl tracking-tight px-3 py-1.5 md:py-2 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
                          {formatDateWithDay(item.startDate)}
                          {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                        </span>
                      </div>
 
-                     <h4 className={`text-[1.8rem] md:text-3xl font-black leading-tight mb-3 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                     <h4 className={`text-[1.6rem] md:text-[2rem] font-black leading-tight mb-1.5 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
                        {item.title}
                      </h4>
                      
-                     {/* 폰트 대폭 확대된 시간 및 장소 */}
-                     <div className="flex flex-wrap gap-4 my-3">
-                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.5rem] md:text-2xl flex items-center gap-2"><Clock size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#508A12]'}/> {item.time}</p>}
-                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.5rem] md:text-2xl flex items-center gap-2"><MapPin size={28} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#508A12]'}/> {item.location}</p>}
+                     {/* 폰트 확대 유지, 줄 간격 및 아이콘 여백 축소 */}
+                     <div className="flex flex-wrap gap-3 my-1.5">
+                       {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.3rem] md:text-xl flex items-center gap-1.5"><Clock size={24} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#508A12]'}/> {item.time}</p>}
+                       {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[1.3rem] md:text-xl flex items-center gap-1.5"><MapPin size={24} strokeWidth={2.5} className={showTrash ? 'text-slate-400' : 'text-[#508A12]'}/> {item.location}</p>}
                      </div>
 
-                     {/* 메모 텍스트 사이즈 대폭 확대 */}
+                     {/* 메모 여백 축소 및 줄 간격 압축 */}
                      {item.content && (
-                       <div className={`mt-4 p-5 rounded-2xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[1.4rem] md:text-2xl whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                       <div className={`mt-2.5 p-3.5 md:p-4 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
+                         <p className="text-slate-700 dark:text-slate-200 font-bold text-[1.2rem] md:text-xl whitespace-pre-wrap leading-snug">{item.content}</p>
                        </div>
                      )}
                   </div>
@@ -532,20 +531,20 @@ function App() {
                   <div className="hidden lg:flex flex-col gap-2 self-start">
                     {!showTrash ? (
                       <>
-                        <button onClick={() => handleEditClick(item)} className="p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={24} /></button>
-                        <button onClick={() => handleSoftDelete(item.id)} className="p-3 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={24} /></button>
+                        <button onClick={() => handleEditClick(item)} className="p-3 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={22} /></button>
+                        <button onClick={() => handleSoftDelete(item.id)} className="p-3 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={22} /></button>
                       </>
                     ) : (
                       <>
-                        <button onClick={() => handleRestore(item.id)} className="p-3 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={24} /></button>
-                        <button onClick={() => handlePermanentDelete(item.id)} className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={24} /></button>
+                        <button onClick={() => handleRestore(item.id)} className="p-3 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={22} /></button>
+                        <button onClick={() => handlePermanentDelete(item.id)} className="p-3 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={22} /></button>
                       </>
                     )}
                   </div>
                 </div>
               ))}
               {displaySchedules.length === 0 && (
-                <div className="py-16 text-center">
+                <div className="py-12 text-center">
                   {showTrash ? (
                     <>
                       <Trash size={60} className="mx-auto mb-4 text-slate-300 dark:text-slate-600" />
@@ -566,34 +565,34 @@ function App() {
 
           {/* 지난 일정 보기 (목록 모드에서만 표시) */}
           {!loading && !showTrash && !isCalendarView && (
-            <div className="mt-8 mb-4 flex flex-col items-center">
+            <div className="mt-6 mb-4 flex flex-col items-center">
               <button 
                 onClick={() => setShowPast(!showPast)}
-                className="px-6 py-3 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full font-black text-base shadow-sm active:scale-95 transition-all flex items-center gap-2"
+                className="px-6 py-2.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full font-black text-base shadow-sm active:scale-95 transition-all flex items-center gap-2"
               >
                 {showPast ? '지난 일정 숨기기' : '지난 일정 보기'}
                 {showPast ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
               </button>
 
               {showPast && (
-                <div className="w-full mt-6 grid grid-cols-1 gap-4">
+                <div className="w-full mt-4 grid grid-cols-1 gap-3">
                   {pastSchedules.length > 0 ? pastSchedules.map((item) => (
-                    <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.8rem] p-5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-4 opacity-80 hover:opacity-100 transition-opacity">
+                    <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.5rem] p-4 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-3 opacity-80 hover:opacity-100 transition-opacity">
                       <div className="flex-1 w-full">
-                         <div className="mb-3">
-                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-lg md:text-xl tracking-tight px-4 py-2 rounded-xl shadow-sm">
+                         <div className="mb-2">
+                           <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[1.1rem] md:text-lg tracking-tight px-3 py-1 rounded-xl shadow-sm">
                              {formatDateWithDay(item.startDate)}
                              {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                            </span>
                          </div>
-                         <h4 className="text-[1.6rem] md:text-2xl font-black text-slate-700 dark:text-slate-300 leading-tight mb-2 tracking-tight break-keep">{item.title}</h4>
-                         <div className="flex flex-wrap gap-4 my-2">
-                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-xl md:text-2xl flex items-center gap-2"><Clock size={24} className="text-slate-400 dark:text-slate-500"/> {item.time}</p>}
-                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-xl md:text-2xl flex items-center gap-2"><MapPin size={24} className="text-slate-400 dark:text-slate-500"/> {item.location}</p>}
+                         <h4 className="text-[1.4rem] md:text-[1.6rem] font-black text-slate-700 dark:text-slate-300 leading-tight mb-1.5 tracking-tight break-keep">{item.title}</h4>
+                         <div className="flex flex-wrap gap-3 my-1">
+                           {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-lg md:text-xl flex items-center gap-1.5"><Clock size={20} className="text-slate-400 dark:text-slate-500"/> {item.time}</p>}
+                           {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-lg md:text-xl flex items-center gap-1.5"><MapPin size={20} className="text-slate-400 dark:text-slate-500"/> {item.location}</p>}
                          </div>
                          {item.content && (
-                           <div className="mt-3 bg-slate-100 dark:bg-slate-700 p-4 rounded-xl">
-                             <p className="text-slate-500 dark:text-slate-300 font-bold text-lg md:text-xl whitespace-pre-wrap">{item.content}</p>
+                           <div className="mt-2 bg-slate-100 dark:bg-slate-700 p-3 rounded-xl">
+                             <p className="text-slate-500 dark:text-slate-300 font-bold text-[1.1rem] md:text-lg whitespace-pre-wrap leading-snug">{item.content}</p>
                            </div>
                          )}
                       </div>
@@ -602,7 +601,7 @@ function App() {
                       </div>
                     </div>
                   )) : (
-                     <div className="py-8 text-center text-slate-400 dark:text-slate-500 font-bold text-lg bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
+                     <div className="py-6 text-center text-slate-400 dark:text-slate-500 font-bold text-lg bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
                       지난 일정이 없습니다.
                     </div>
                   )}
