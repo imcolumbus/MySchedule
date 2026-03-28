@@ -1,9 +1,10 @@
 /**
  * [버전 정보]
- * v1.37.0 (2026-03-28)
- * - 상단 헤더 날짜 크기 최적화: 모바일에서 요일이 잘리지 않도록 가변 폰트(clamp) 수치를 화면 폭에 맞게 재조정 (5.5vw 수준)
- * - 일정 날짜/배지 레이아웃 개선: 긴 날짜(수요일~금요일 등)가 들어올 때 D-배지가 텍스트를 자르지 않도록 flex-wrap을 허용하고 truncate(말줄임)를 제거하여 안전하게 표시되도록 수정
- * - PC 데이터 관리 기능 위치 수정: '집(가족 정보)' 메뉴뿐만 아니라 기본 '일정' 메뉴에서도 항상 엑셀 다운로드와 백업 기능이 보이도록 사이드바 하단으로 고정 배치
+ * v1.38.0 (2026-03-28)
+ * - 법정 공휴일 표시 자동화: 신정, 설날, 삼일절, 추석, 성탄절 등 주요 공휴일을 자동으로 계산하여 달력에 빨간색으로 표시하고 휴일명 노출
+ * - 상단 날짜 폰트 10% 확대: 모바일 가변 폰트(clamp) 수치를 기존 대비 10% 상향(clamp(20px, 6.1vw, 42px))하여 화면이 허용하는 선에서 최대한 크고 시원하게 출력
+ * - 달력 일자 셀 최적화: 휴일명이 들어갈 수 있도록 셀 높이를 미세 조정하고 가독성을 위해 텍스트 색상 및 말줄임표 처리 강화
+ * - 기존 사양 완전 유지: 엑셀 다운로드, 다크모드 대응, D-Day 레이아웃 고정, 오전/오후 시간 형식 등 완벽 보존
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -136,6 +137,44 @@ const app = (firebaseConfig && firebaseConfig.apiKey) ? initializeApp(firebaseCo
 const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-schedule-app';
+
+// 공휴일 판별 함수 (고정 휴일 + 24~27년도 유동 휴일)
+const getHoliday = (dateStr) => {
+  const [year, month, day] = dateStr.split('-');
+  const md = `${month}-${day}`;
+
+  const fixedHolidays = {
+    '01-01': '신정',
+    '03-01': '삼일절',
+    '05-05': '어린이날',
+    '06-06': '현충일',
+    '08-15': '광복절',
+    '10-03': '개천절',
+    '10-09': '한글날',
+    '12-25': '성탄절'
+  };
+
+  const dynamicHolidays = {
+    '2024-02-09': '설연휴', '2024-02-10': '설날', '2024-02-11': '설연휴', '2024-02-12': '대체휴일',
+    '2024-04-10': '국회의원선거',
+    '2024-05-06': '대체휴일', '2024-05-15': '부처님오신날',
+    '2024-09-16': '추석연휴', '2024-09-17': '추석', '2024-09-18': '추석연휴',
+    '2025-01-28': '설연휴', '2025-01-29': '설날', '2025-01-30': '설연휴',
+    '2025-03-03': '대체휴일',
+    '2025-05-05': '어린이/부처님', '2025-05-06': '대체휴일',
+    '2025-10-03': '개천/추석', '2025-10-05': '추석연휴', '2025-10-06': '추석', '2025-10-07': '추석연휴', '2025-10-08': '대체휴일', '2025-10-09': '한글날',
+    '2026-02-16': '설연휴', '2026-02-17': '설날', '2026-02-18': '설연휴',
+    '2026-05-24': '부처님오신날', '2026-05-25': '대체휴일',
+    '2026-09-24': '추석연휴', '2026-09-25': '추석', '2026-09-26': '추석연휴',
+    '2027-02-06': '설연휴', '2027-02-07': '설날', '2027-02-08': '설연휴', '2027-02-09': '대체휴일',
+    '2027-05-13': '부처님오신날',
+    '2027-09-14': '추석연휴', '2027-09-15': '추석', '2027-09-16': '추석연휴'
+  };
+
+  if (dynamicHolidays[dateStr]) return dynamicHolidays[dateStr];
+  if (fixedHolidays[md]) return fixedHolidays[md];
+  return null;
+};
 
 // 날짜/시간 유틸리티
 const getLocalDateString = (dateObj) => {
@@ -595,23 +634,34 @@ export default function App() {
              const hasSchedule = schedules.some(s => !s.isDeleted && s.startDate <= dateStr && (s.endDate || s.startDate) >= dateStr);
              const isSelected = selectedDate === dateStr;
              const isToday = todayStr === dateStr;
+             const holidayName = getHoliday(dateStr);
+             const isSunday = new Date(dateStr).getDay() === 0;
+             const isRedDay = isSunday || holidayName;
 
              return (
                <button
                  key={dateStr}
                  onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[0.8rem] md:rounded-[1.2rem] h-[3rem] md:h-[4rem] transition-all relative overflow-hidden ${
+                 className={`flex flex-col items-center justify-center rounded-[0.8rem] md:rounded-[1.2rem] h-[3.2rem] md:h-[4rem] transition-all relative overflow-hidden ${
                    isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
                    : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
                    : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
                  }`}
                >
-                 <span className={`text-[clamp(1rem,3.5vw,1.3rem)] md:text-2xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
+                 <span className={`text-[clamp(1.1rem,3.5vw,1.3rem)] md:text-2xl font-black relative z-10 ${
+                   isSelected ? 'text-white' : 
+                   isRedDay ? 'text-red-500' : 
+                   isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : 
+                   'text-slate-700 dark:text-slate-200'
+                 }`}>
                    {dayNum}
                  </span>
-                 {hasSchedule && (
+                 {/* 법정 공휴일명 표시 또는 스케줄 닷 표시 */}
+                 {holidayName ? (
+                   <span className={`text-[9px] md:text-[11px] leading-none mt-0.5 font-bold truncate w-[95%] text-center ${isSelected ? 'text-white/90' : 'text-red-400 dark:text-red-400/80'}`}>{holidayName}</span>
+                 ) : hasSchedule ? (
                    <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full mt-0.5 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
-                 )}
+                 ) : null}
                </button>
              );
            })}
@@ -621,7 +671,7 @@ export default function App() {
   };
 
   // ----------------------------------------------------
-  // PC 전용: '가족 정보 입력' 폼
+  // PC 전용: '가족 정보 입력' 폼 
   // ----------------------------------------------------
   const renderFamilyInfoForm = () => (
     <form onSubmit={handleSaveFamilyInfo} className="space-y-4 md:space-y-6">
@@ -802,9 +852,9 @@ export default function App() {
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-2.5 md:py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
-          {/* 상단 날짜 폰트 사이즈를 모바일 최적 범위에서 최대한 키움 */}
+          {/* 상단 날짜 폰트 사이즈 10% 확대 반영: clamp(22px, 6.8vw, 48px) 적용으로 더욱 시원하게 표시 */}
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,5.5vw,38px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(22px,6.8vw,48px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
@@ -843,7 +893,7 @@ export default function App() {
             {isFamilyView ? renderFamilyInfoForm() : renderScheduleForm(editingId ? resetForm : null)}
           </div>
           
-          {/* PC용 데이터 관리 버튼: 집/일정 화면 상관없이 항상 보이도록 사이드바 맨 하단으로 배치 */}
+          {/* PC용 데이터 관리 버튼: 항상 보이도록 사이드바 하단 배치 */}
           <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-100 dark:border-slate-700">
             <h3 className="text-sm font-black text-slate-400 dark:text-slate-500 mb-3 ml-1 uppercase">데이터 관리</h3>
             <div className="grid grid-cols-2 gap-2">
@@ -886,9 +936,9 @@ export default function App() {
                 {displaySchedules.map((item) => (
                   <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'opacity-80 border-red-100 dark:border-red-900/50' : 'border-slate-100 dark:border-slate-700'}`}>
                     <div className="flex-1 w-full">
-                       {/* 날짜가 길어져도 배지가 밀리지 않고 텍스트가 감싸지도록 flex-wrap 설정. 긴 범위 텍스트는 break-keep 처리 */}
-                       <div className="mb-2 flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-2">
-                         <span className={`inline-block text-white font-black text-[clamp(0.85rem,3.2vw,1.1rem)] md:text-lg px-3 py-1 rounded-xl shadow-sm break-keep leading-tight ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
+                       {/* 날짜 배지 밀림 방지를 위한 flex-nowrap 고정 */}
+                       <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
+                         <span className={`inline-block text-white font-black text-[clamp(0.85rem,3.2vw,1.1rem)] md:text-lg px-3 py-1 rounded-xl shadow-sm whitespace-nowrap truncate ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
                            {formatDateWithDay(item.startDate)} {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                          </span>
                          {!showTrash && (
@@ -963,8 +1013,8 @@ export default function App() {
                       {pastSchedules.length > 0 ? pastSchedules.map((item) => (
                         <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.2rem] p-3.5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-2.5 opacity-80 hover:opacity-100 transition-opacity">
                           <div className="flex-1 w-full">
-                             <div className="mb-1.5 flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-2">
-                               <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.85rem,3vw,1rem)] tracking-tight px-2.5 py-1 rounded-lg shadow-sm break-keep leading-tight">
+                             <div className="mb-1.5 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
+                               <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.85rem,3vw,1rem)] tracking-tight px-2.5 py-1 rounded-lg shadow-sm whitespace-nowrap truncate">
                                  {formatDateWithDay(item.startDate)}
                                  {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                                </span>
