@@ -1,12 +1,9 @@
 /**
  * [버전 정보]
- * v1.36.0 (2026-03-28)
- * - 기반 버전: v1.33.0 (가족 4인 연락처, '오늘' 배지 유지)
- * - 상단 날짜 크기 극대화: 가변 폰트 크기(clamp) 범위를 최대 46px까지 대폭 상향하여 시인성 개선
- * - 시간 포맷 변경: '15:00' 형식을 '오후 3:00' 형식으로 변환하여 어르신 가독성 최적화
- * - 배지 레이아웃 고정: 화면이 좁을 때 날짜와 '오늘(D-Day)' 배지가 아래로 밀리지 않도록 flex-nowrap 및 truncate 적용
- * - 다크 모드(상용급 UX) 개선: 야간 모드 시 글씨가 어두워 보이지 않던 현상을 해결하기 위해 고대비 dark:text-slate-200/300 및 고급스러운 다크 테마 배경색 전면 적용
- * - PC 데이터 관리 기능: 사이드바 하단에 '전체 백업(JSON)' 및 '엑셀 다운(CSV)' 기능 추가
+ * v1.37.0 (2026-03-28)
+ * - 상단 헤더 날짜 크기 최적화: 모바일에서 요일이 잘리지 않도록 가변 폰트(clamp) 수치를 화면 폭에 맞게 재조정 (5.5vw 수준)
+ * - 일정 날짜/배지 레이아웃 개선: 긴 날짜(수요일~금요일 등)가 들어올 때 D-배지가 텍스트를 자르지 않도록 flex-wrap을 허용하고 truncate(말줄임)를 제거하여 안전하게 표시되도록 수정
+ * - PC 데이터 관리 기능 위치 수정: '집(가족 정보)' 메뉴뿐만 아니라 기본 '일정' 메뉴에서도 항상 엑셀 다운로드와 백업 기능이 보이도록 사이드바 하단으로 고정 배치
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -91,7 +88,7 @@ if (typeof document !== 'undefined') {
 
     const metaTheme = document.createElement('meta');
     metaTheme.name = 'theme-color';
-    metaTheme.content = '#ffffff';
+    metaTheme.content = '#0f172a'; // 다크모드 대응 테마 컬러
     document.head.appendChild(metaTheme);
     
     const title = document.querySelector('title');
@@ -183,7 +180,7 @@ export default function App() {
 
   // 내비게이션 뷰 상태
   const [isCalendarView, setIsCalendarView] = useState(false);
-  const [isFamilyView, setIsFamilyView] = useState(false); // [집] 메뉴 상태 추가
+  const [isFamilyView, setIsFamilyView] = useState(false); 
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(getLocalDateString(new Date()));
 
@@ -192,7 +189,7 @@ export default function App() {
   // 가족 정보 상태
   const [familyInfo, setFamilyInfo] = useState(null);
   
-  // 가족 정보 에디터 폼 상태 (PC용) - 4명으로 확장
+  // 가족 정보 에디터 폼 상태 (PC용)
   const [fAddress, setFAddress] = useState('');
   const [fContact1Name, setFContact1Name] = useState('');
   const [fContact1Phone, setFContact1Phone] = useState('');
@@ -346,7 +343,7 @@ export default function App() {
     }
   };
 
-  // 가족 정보 저장 핸들러 (PC 전용 폼) - 4명 저장
+  // 가족 정보 저장 핸들러
   const handleSaveFamilyInfo = async (e) => {
     e.preventDefault();
     if (!db) return;
@@ -392,7 +389,7 @@ export default function App() {
         s.startDate,
         s.endDate || s.startDate,
         `"${(s.title || '').replace(/"/g, '""')}"`,
-        s.time || '',
+        s.time ? formatTime(s.time) : '',
         `"${(s.location || '').replace(/"/g, '""')}"`,
         `"${(s.content || '').replace(/"/g, '""')}"`
       ]);
@@ -624,13 +621,13 @@ export default function App() {
   };
 
   // ----------------------------------------------------
-  // PC 전용: '가족 정보 입력' 폼 (isFamilyView 상태일 때 표시) - 4명 지원
+  // PC 전용: '가족 정보 입력' 폼
   // ----------------------------------------------------
   const renderFamilyInfoForm = () => (
     <form onSubmit={handleSaveFamilyInfo} className="space-y-4 md:space-y-6">
       <div className="bg-orange-50 dark:bg-slate-700/50 p-4 rounded-2xl mb-4 border border-orange-100 dark:border-slate-600">
         <p className="text-orange-700 dark:text-orange-300 font-bold text-sm leading-relaxed">
-          여기에 입력하신 정보는 어머니 스마트폰의 <strong className="text-[#508A12]">[집]</strong> 메뉴에 실시간으로 나타납니다.
+          여기에 입력하신 정보는 어머니 스마트폰의 <strong className="text-[#508A12] dark:text-[#8DC63F]">[집]</strong> 메뉴에 실시간으로 나타납니다.
         </p>
       </div>
 
@@ -691,19 +688,6 @@ export default function App() {
       <button type="submit" disabled={isSaving} className="w-full py-4 md:py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50">
         {isSaving ? '저장 중...' : '가족 정보 반영하기'}
       </button>
-
-      {/* PC 데이터 관리 버튼 */}
-      <div className="pt-4 mt-6 border-t border-slate-100 dark:border-slate-700">
-        <h3 className="text-sm font-black text-slate-400 mb-3 ml-1 uppercase">데이터 관리</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={handleDownloadCSV} className="flex flex-col items-center gap-1.5 p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors shadow-sm">
-            <Download size={20} /> <span className="text-xs font-black">엑셀 다운</span>
-          </button>
-          <button type="button" onClick={handleBackupJSON} className="flex flex-col items-center gap-1.5 p-3 bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors shadow-sm">
-            <Save size={20} /> <span className="text-xs font-black">전체 백업</span>
-          </button>
-        </div>
-      </div>
     </form>
   );
 
@@ -818,9 +802,9 @@ export default function App() {
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-2.5 md:py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
-          {/* 상단 날짜 폰트 사이즈 가변(clamp) 영역을 대폭 확대하여 시원하게 표시 (최대 46px 보장) */}
+          {/* 상단 날짜 폰트 사이즈를 모바일 최적 범위에서 최대한 키움 */}
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(24px,7.5vw,46px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+            <p className="text-slate-900 dark:text-white font-black text-[clamp(18px,5.5vw,38px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
@@ -859,6 +843,19 @@ export default function App() {
             {isFamilyView ? renderFamilyInfoForm() : renderScheduleForm(editingId ? resetForm : null)}
           </div>
           
+          {/* PC용 데이터 관리 버튼: 집/일정 화면 상관없이 항상 보이도록 사이드바 맨 하단으로 배치 */}
+          <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded-[2rem] border border-slate-100 dark:border-slate-700">
+            <h3 className="text-sm font-black text-slate-400 dark:text-slate-500 mb-3 ml-1 uppercase">데이터 관리</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={handleDownloadCSV} className="flex flex-col items-center gap-1.5 p-3 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-2xl hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors shadow-sm">
+                <Download size={20} /> <span className="text-xs font-black">엑셀 다운</span>
+              </button>
+              <button type="button" onClick={handleBackupJSON} className="flex flex-col items-center gap-1.5 p-3 bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors shadow-sm">
+                <Save size={20} /> <span className="text-xs font-black">전체 백업</span>
+              </button>
+            </div>
+          </div>
+
           {!isFamilyView && (
             <div className="mt-4 text-right">
                <button 
@@ -889,9 +886,9 @@ export default function App() {
                 {displaySchedules.map((item) => (
                   <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'opacity-80 border-red-100 dark:border-red-900/50' : 'border-slate-100 dark:border-slate-700'}`}>
                     <div className="flex-1 w-full">
-                       {/* 날짜와 배지가 아래로 밀리지 않도록 flex-nowrap 고정 및 넘침 시 truncate 처리 */}
-                       <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
-                         <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.2vw,1.1rem)] md:text-lg px-3 py-1 rounded-xl shadow-sm whitespace-nowrap truncate ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
+                       {/* 날짜가 길어져도 배지가 밀리지 않고 텍스트가 감싸지도록 flex-wrap 설정. 긴 범위 텍스트는 break-keep 처리 */}
+                       <div className="mb-2 flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-2">
+                         <span className={`inline-block text-white font-black text-[clamp(0.85rem,3.2vw,1.1rem)] md:text-lg px-3 py-1 rounded-xl shadow-sm break-keep leading-tight ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
                            {formatDateWithDay(item.startDate)} {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                          </span>
                          {!showTrash && (
@@ -906,7 +903,6 @@ export default function App() {
                        </h4>
                        
                        <div className="flex flex-wrap gap-2.5 mt-1.5 mb-1.5">
-                         {/* 시간 표시에 formatTime 적용 및 다크모드 가독성 강화 */}
                          {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className="text-slate-400 dark:text-slate-400" size={18} strokeWidth={2.5} /> {formatTime(item.time)}</p>}
                          {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className="text-slate-400 dark:text-slate-400" size={18} strokeWidth={2.5} /> {item.location}</p>}
                        </div>
@@ -967,8 +963,8 @@ export default function App() {
                       {pastSchedules.length > 0 ? pastSchedules.map((item) => (
                         <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.2rem] p-3.5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-2.5 opacity-80 hover:opacity-100 transition-opacity">
                           <div className="flex-1 w-full">
-                             <div className="mb-1.5 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
-                               <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.85rem,3vw,1rem)] tracking-tight px-2.5 py-1 rounded-lg shadow-sm whitespace-nowrap truncate">
+                             <div className="mb-1.5 flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-2">
+                               <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.85rem,3vw,1rem)] tracking-tight px-2.5 py-1 rounded-lg shadow-sm break-keep leading-tight">
                                  {formatDateWithDay(item.startDate)}
                                  {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                                </span>
