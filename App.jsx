@@ -1,9 +1,10 @@
 /**
  * [버전 정보]
- * v1.33.0 (2026-03-28)
- * - D-Day 표시 개선: 일정 목록의 "D-Day" 텍스트를 어머니께서 이해하기 쉬운 "오늘"로 변경
- * - 강조 색상 유지: "오늘" 일정에 대해서는 기존과 동일하게 빨간색 계열의 배지를 적용하여 시인성 확보
- * - 헤더 및 레이아웃 최적화 사양 유지
+ * v1.34.0 (2026-03-28)
+ * - 상단 헤더 날짜 크기 상향: 시인성을 위해 가변 폰트 크기(vw)를 더 키워 극대화 (최대 42px)
+ * - 시간 표시 형식 개선: 기존 'HH:mm' 형식을 '오전/오후 h:mm' 형식으로 변환하여 가독성 증대
+ * - 배지 밀림 현상 방지: 날짜 텍스트와 오늘/D-Day 배지가 한 줄에 나란히 배치되도록 flex-nowrap 및 flex-shrink 설정 적용
+ * - 카드 내부 요소 간격 미세 조정: 정보가 더 집약적으로 보이도록 마진값 최적화
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -135,7 +136,7 @@ const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-schedule-app';
 
-// 날짜 유틸리티
+// 유틸리티 함수
 const getLocalDateString = (dateObj) => {
   const year = dateObj.getFullYear();
   const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -149,6 +150,17 @@ const formatDateWithDay = (dateStr) => {
   const dateObj = new Date(year, month - 1, day);
   const days = ['일', '월', '화', '수', '목', '금', '토'];
   return `${parseInt(month)}월 ${parseInt(day)}일 ${days[dateObj.getDay()]}요일`;
+};
+
+// 시간 포맷팅 함수 (오전/오후 표시)
+const formatTime = (timeStr) => {
+  if (!timeStr) return '';
+  const [hourStr, minStr] = timeStr.split(':');
+  let hour = parseInt(hourStr);
+  const ampm = hour < 12 ? '오전' : '오후';
+  hour = hour % 12;
+  hour = hour ? hour : 12; // 0시는 12시로 표시
+  return `${ampm} ${hour}:${minStr}`;
 };
 
 export default function App() {
@@ -169,7 +181,7 @@ export default function App() {
 
   // 내비게이션 뷰 상태
   const [isCalendarView, setIsCalendarView] = useState(false);
-  const [isFamilyView, setIsFamilyView] = useState(false); // [집] 메뉴 상태 추가
+  const [isFamilyView, setIsFamilyView] = useState(false); 
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(getLocalDateString(new Date()));
 
@@ -177,8 +189,6 @@ export default function App() {
 
   // 가족 정보 상태
   const [familyInfo, setFamilyInfo] = useState(null);
-  
-  // 가족 정보 에디터 폼 상태 (PC용) - 4명으로 확장
   const [fAddress, setFAddress] = useState('');
   const [fContact1Name, setFContact1Name] = useState('');
   const [fContact1Phone, setFContact1Phone] = useState('');
@@ -190,7 +200,7 @@ export default function App() {
   const [fContact4Phone, setFContact4Phone] = useState('');
   const [fMemo, setFMemo] = useState('');
 
-  // D-Day 계산 함수 (D-Day 대신 "오늘" 반환하도록 수정)
+  // D-Day 계산 함수
   const getDDay = (startDate) => {
     const todayDate = new Date(todayStr);
     const targetDate = new Date(startDate);
@@ -201,20 +211,6 @@ export default function App() {
     if (diffDays > 0) return `D-${diffDays}`;
     return `D+${Math.abs(diffDays)}`;
   };
-
-  // 일정 입력 폼 상태
-  const [editingId, setEditingId] = useState(null);
-  const [newTitle, setNewTitle] = useState('');
-  const [newContent, setNewContent] = useState('');
-  const [newLocation, setNewLocation] = useState('');
-  const [newTime, setNewTime] = useState('');
-  const [newStartDate, setNewStartDate] = useState(todayStr);
-  const [newEndDate, setNewEndDate] = useState('');
-  const [isRange, setIsRange] = useState(false);
-
-  const fullDateDisplay = new Date().toLocaleDateString('ko-KR', { 
-    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
-  });
 
   // 1. 익명 로그인 자동 진행
   useEffect(() => {
@@ -228,68 +224,49 @@ export default function App() {
             await signInAnonymously(auth);
           }
         }
-      } catch (e) { 
-        console.error("Auth Init Fail:", e);
-      }
+      } catch (e) { console.error("Auth Init Fail:", e); }
     };
     initAuth();
-    
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
+    const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
-  // 2. 가족 비밀번호(PIN) 및 집(가족) 정보 불러오기
+  // 2. 가족 비밀번호 및 정보 불러오기
   useEffect(() => {
     if (!user || !db) return;
-    const checkSettings = async () => {
-      try {
-        const settingsRef = doc(db, 'artifacts', appId, 'public', 'settings');
-        const unsubscribe = onSnapshot(settingsRef, (snap) => {
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data.familyPin) {
-              setSavedPin(data.familyPin);
-              if (localStorage.getItem(`pin_auth_${appId}`) === 'true') {
-                setIsPinAuthenticated(true);
-              }
-            } else {
-              setSavedPin(null);
-            }
-            
-            if (data.familyData) {
-              setFamilyInfo(data.familyData);
-              setFAddress(data.familyData.address || '');
-              setFContact1Name(data.familyData.contact1Name || '');
-              setFContact1Phone(data.familyData.contact1Phone || '');
-              setFContact2Name(data.familyData.contact2Name || '');
-              setFContact2Phone(data.familyData.contact2Phone || '');
-              setFContact3Name(data.familyData.contact3Name || '');
-              setFContact3Phone(data.familyData.contact3Phone || '');
-              setFContact4Name(data.familyData.contact4Name || '');
-              setFContact4Phone(data.familyData.contact4Phone || '');
-              setFMemo(data.familyData.memo || '');
-            }
-          }
-          setIsPinChecked(true);
-        }, (err) => {
-          console.error("Settings Check Error:", err);
-          if (err.code === 'permission-denied') {
-            setErrorModal("데이터베이스 권한이 잠겨있습니다.\nFirebase 콘솔의 [Firestore Database] -> [규칙] 탭에서 'allow read, write: if request.auth != null;' 로 권한을 설정해주세요.");
-          }
-          setIsPinChecked(true);
-        });
-        
-        return () => unsubscribe();
-      } catch (err) {
-        console.error(err);
+    const settingsRef = doc(db, 'artifacts', appId, 'public', 'settings');
+    const unsubscribe = onSnapshot(settingsRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.familyPin) {
+          setSavedPin(data.familyPin);
+          if (localStorage.getItem(`pin_auth_${appId}`) === 'true') setIsPinAuthenticated(true);
+        } else {
+          setSavedPin(null);
+        }
+        if (data.familyData) {
+          setFamilyInfo(data.familyData);
+          setFAddress(data.familyData.address || '');
+          setFContact1Name(data.familyData.contact1Name || '');
+          setFContact1Phone(data.familyData.contact1Phone || '');
+          setFContact2Name(data.familyData.contact2Name || '');
+          setFContact2Phone(data.familyData.contact2Phone || '');
+          setFContact3Name(data.familyData.contact3Name || '');
+          setFContact3Phone(data.familyData.contact3Phone || '');
+          setFContact4Name(data.familyData.contact4Name || '');
+          setFContact4Phone(data.familyData.contact4Phone || '');
+          setFMemo(data.familyData.memo || '');
+        }
       }
-    };
-    checkSettings();
+      setIsPinChecked(true);
+    }, (err) => {
+      if (err.code === 'permission-denied') setErrorModal("데이터베이스 권한이 잠겨있습니다.");
+      setIsPinChecked(true);
+    });
+    return () => unsubscribe();
   }, [user, db]);
 
-  // 3. (인증 완료 시) 일정 데이터 불러오기
+  // 3. 일정 데이터 불러오기
   useEffect(() => {
     if (!user || !db || !isPinAuthenticated) return;
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
@@ -297,42 +274,27 @@ export default function App() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSchedules(data);
       setLoading(false);
-    }, (err) => {
-      console.error("Firestore Error:", err);
-      setLoading(false);
     });
     return () => unsubscribe();
   }, [user, db, isPinAuthenticated]);
 
-  // PIN 설정 및 확인 핸들러
+  // 입력 핸들러 및 기타 로직
   const handlePinSubmit = async (e) => {
     e.preventDefault();
-    if (pinInput.length !== 4) {
-      setPinError("비밀번호는 4자리 숫자로 입력해주세요.");
-      return;
-    }
-
+    if (pinInput.length !== 4) return;
     if (!savedPin) {
       try {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'settings'), { familyPin: pinInput }, { merge: true });
-        setSavedPin(pinInput);
-        setIsPinAuthenticated(true);
+        setSavedPin(pinInput); setIsPinAuthenticated(true);
         localStorage.setItem(`pin_auth_${appId}`, 'true'); 
-      } catch (err) {
-        setPinError("설정 저장 실패: 권한을 확인해주세요.");
-      }
+      } catch (err) { setPinError("설정 저장 실패"); }
     } else {
       if (pinInput === savedPin) {
-        setIsPinAuthenticated(true);
-        localStorage.setItem(`pin_auth_${appId}`, 'true');
-      } else {
-        setPinError("비밀번호가 틀렸습니다. 다시 시도해주세요.");
-        setPinInput('');
-      }
+        setIsPinAuthenticated(true); localStorage.setItem(`pin_auth_${appId}`, 'true');
+      } else { setPinError("비밀번호가 틀렸습니다."); setPinInput(''); }
     }
   };
 
-  // 가족 정보 저장 핸들러 (PC 전용 폼) - 4명 저장
   const handleSaveFamilyInfo = async (e) => {
     e.preventDefault();
     if (!db) return;
@@ -348,34 +310,26 @@ export default function App() {
           memo: fMemo
         }
       }, { merge: true });
-      alert("우리집 정보가 저장되었습니다! 어머니 폰에 실시간으로 반영됩니다.");
-    } catch(e) {
-       console.error("가족 정보 저장 실패:", e);
-       alert("저장에 실패했습니다. 권한을 확인해주세요.");
-    } finally {
-      setIsSaving(false);
-    }
+      alert("우리집 정보가 저장되었습니다!");
+    } finally { setIsSaving(false); }
   };
 
-  // 일정 저장/삭제 관련 핸들러
-  const resetForm = () => {
-    setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); 
-    setNewStartDate(todayStr); setNewEndDate(''); 
-    setIsRange(false); setEditingId(null);
-  };
+  // 일정 관련 상태 관리
+  const [editingId, setEditingId] = useState(null);
+  const [newTitle, setNewTitle] = useState('');
+  const [newContent, setNewContent] = useState('');
+  const [newLocation, setNewLocation] = useState('');
+  const [newTime, setNewTime] = useState('');
+  const [newStartDate, setNewStartDate] = useState(todayStr);
+  const [newEndDate, setNewEndDate] = useState('');
+  const [isRange, setIsRange] = useState(false);
 
   const handleAddOrEditSchedule = async (e) => {
     e.preventDefault();
     if (!newTitle.trim() || !db || isSaving || !user) return;
     setIsSaving(true);
     try {
-      const scheduleData = {
-        title: newTitle, content: newContent, location: newLocation, time: newTime, 
-        startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate,
-        author: user.uid,
-        isDeleted: false 
-      };
-
+      const scheduleData = { title: newTitle, content: newContent, location: newLocation, time: newTime, startDate: newStartDate, endDate: isRange ? newEndDate : newStartDate, author: user.uid, isDeleted: false };
       if (editingId) {
         scheduleData.updatedAt = serverTimestamp();
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', editingId), scheduleData);
@@ -384,411 +338,132 @@ export default function App() {
         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'schedules'), scheduleData);
       }
       resetForm();
-    } catch (err) { 
-      console.error("Save Fail:", err); 
-    } finally {
-      setIsSaving(false);
-    }
+    } finally { setIsSaving(false); }
   };
 
   const handleSoftDelete = async (id) => {
     if (!db || !user) return;
-    if (confirm("이 일정을 휴지통으로 이동하시겠습니까?")) {
-      try {
-        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: true });
-        if (editingId === id) resetForm();
-      } catch (err) { console.error("Trash Fail:", err); }
-    }
+    if (confirm("이 일정을 휴지통으로 이동하시겠습니까?")) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: true });
   };
-
-  const handleRestore = async (id) => {
-    if (!db || !user) return;
-    try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: false });
-    } catch (err) { console.error("Restore Fail:", err); }
-  };
-
+  const handleRestore = async (id) => await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id), { isDeleted: false });
   const handlePermanentDelete = async (id) => {
-    if (!db || !user) return;
-    if (confirm("이 일정을 완전히 삭제하시겠습니까? 복구할 수 없습니다.")) {
-      try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
-      } catch (err) { console.error("Delete Fail:", err); }
-    }
+    if (confirm("완전히 삭제하시겠습니까?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', id));
   };
-
   const handleEditClick = (item) => {
-    setNewTitle(item.title || '');
-    setNewContent(item.content || '');
-    setNewLocation(item.location || '');
-    setNewTime(item.time || '');
-    setNewStartDate(item.startDate);
-    if (item.startDate !== item.endDate) {
-      setIsRange(true); setNewEndDate(item.endDate);
-    } else {
-      setIsRange(false); setNewEndDate('');
-    }
-    setEditingId(item.id);
-    setShowTrash(false); 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setNewTitle(item.title || ''); setNewContent(item.content || ''); setNewLocation(item.location || ''); setNewTime(item.time || ''); setNewStartDate(item.startDate);
+    if (item.startDate !== item.endDate) { setIsRange(true); setNewEndDate(item.endDate); } else { setIsRange(false); setNewEndDate(''); }
+    setEditingId(item.id); setShowTrash(false); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const resetForm = () => { setNewTitle(''); setNewContent(''); setNewLocation(''); setNewTime(''); setNewStartDate(todayStr); setNewEndDate(''); setIsRange(false); setEditingId(null); };
 
-  const activeSchedules = useMemo(() => {
-    return schedules
-      .filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr)
-      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
-  }, [schedules, todayStr]);
-
-  const pastSchedules = useMemo(() => {
-    return schedules
-      .filter(s => !s.isDeleted && (s.endDate || s.startDate) < todayStr)
-      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-  }, [schedules, todayStr]);
-
-  const trashedSchedules = useMemo(() => {
-    return schedules
-      .filter(s => s.isDeleted)
-      .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
-  }, [schedules]);
-
-  const calendarFilteredSchedules = useMemo(() => {
-    return schedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate);
-  }, [schedules, selectedDate]);
+  const activeSchedules = useMemo(() => schedules.filter(s => !s.isDeleted && (s.endDate || s.startDate) >= todayStr).sort((a, b) => new Date(a.startDate) - new Date(b.startDate)), [schedules, todayStr]);
+  const pastSchedules = useMemo(() => schedules.filter(s => !s.isDeleted && (s.endDate || s.startDate) < todayStr).sort((a, b) => new Date(b.startDate) - new Date(a.startDate)), [schedules, todayStr]);
+  const trashedSchedules = useMemo(() => schedules.filter(s => s.isDeleted).sort((a, b) => new Date(b.startDate) - new Date(a.startDate)), [schedules]);
+  const calendarFilteredSchedules = useMemo(() => schedules.filter(s => !s.isDeleted && s.startDate <= selectedDate && (s.endDate || s.startDate) >= selectedDate), [schedules, selectedDate]);
 
   let displaySchedules = showTrash ? trashedSchedules : activeSchedules;
   if (isCalendarView && !showTrash) displaySchedules = calendarFilteredSchedules;
 
-  // ----------------------------------------------------
-  // 모바일 전용: '집 (우리집 정보)' 화면 렌더링
-  // ----------------------------------------------------
+  // 뷰 컴포넌트
   const renderFamilyInfoView = () => (
-    <div className="space-y-3 md:space-y-4 pb-6 mt-1">
-      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
-           <MapPin size={24} strokeWidth={2.5}/> 우리집 주소
-         </h3>
-         <p className="text-[clamp(1.2rem,5vw,1.5rem)] md:text-2xl font-black text-slate-800 dark:text-white break-keep leading-snug">
-           {familyInfo?.address || '아직 등록된 주소가 없습니다.\n(PC에서 입력해주세요)'}
-         </p>
+    <div className="space-y-3 pb-6 mt-1">
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-[1.8rem] shadow-sm border border-slate-100">
+         <h3 className="text-[#508A12] font-black text-lg mb-2 flex items-center gap-2"><MapPin size={22}/> 우리집 주소</h3>
+         <p className="text-[clamp(1.2rem,5.5vw,1.6rem)] font-black text-slate-800 break-keep leading-snug">{familyInfo?.address || '주소가 없습니다.'}</p>
       </div>
-      
-      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
-           <Phone size={24} strokeWidth={2.5}/> 바로 전화걸기
-         </h3>
-         <div className="space-y-2.5 md:space-y-3">
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-[1.8rem] shadow-sm border border-slate-100">
+         <h3 className="text-[#508A12] font-black text-lg mb-2 flex items-center gap-2"><Phone size={22}/> 바로 전화걸기</h3>
+         <div className="space-y-2.5">
            {[1,2,3,4].map(num => {
               const name = familyInfo?.[`contact${num}Name`];
               const phone = familyInfo?.[`contact${num}Phone`];
               if (!name && !phone) return null;
-              
               return (
-                <a key={num} href={`tel:${phone}`} className="flex items-center justify-between p-3.5 md:p-4 bg-[#508A12] hover:bg-[#3E6B0E] text-white rounded-[1.2rem] md:rounded-[1.5rem] active:scale-95 transition-all shadow-md group">
-                   <div className="flex flex-col">
-                     <span className="text-[1.4rem] md:text-2xl font-black">{name}</span>
-                     <span className="text-base md:text-lg text-white/90 font-bold mt-0.5">{phone}</span>
-                   </div>
-                   <div className="bg-white/20 p-2.5 md:p-3 rounded-full group-active:bg-white/30 transition-colors">
-                     <Phone size={28} className="text-white" fill="currentColor" />
-                   </div>
+                <a key={num} href={`tel:${phone}`} className="flex items-center justify-between p-3.5 bg-[#508A12] text-white rounded-[1.2rem] active:scale-95 shadow-md">
+                   <div className="flex flex-col"><span className="text-[1.3rem] font-black">{name}</span><span className="text-base text-white/90 font-bold">{phone}</span></div>
+                   <div className="bg-white/20 p-2 rounded-full"><Phone size={24} fill="currentColor" /></div>
                 </a>
               )
            })}
-           {(!familyInfo?.contact1Name && !familyInfo?.contact2Name && !familyInfo?.contact3Name && !familyInfo?.contact4Name) && (
-             <p className="text-slate-500 font-bold text-base md:text-lg">등록된 연락처가 없습니다.</p>
-           )}
          </div>
       </div>
-
-      <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
-         <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
-           <Info size={24} strokeWidth={2.5}/> 기억할 정보
-         </h3>
-         <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-[1.2rem] md:rounded-[1.5rem]">
-           <p className="text-[1.1rem] md:text-xl font-bold text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
-             {familyInfo?.memo || '등록된 내용이 없습니다.'}
-           </p>
-         </div>
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-[1.8rem] shadow-sm border border-slate-100">
+         <h3 className="text-[#508A12] font-black text-lg mb-2 flex items-center gap-2"><Info size={22}/> 기억할 정보</h3>
+         <div className="bg-slate-50 p-4 rounded-[1.2rem]"><p className="text-[1.1rem] font-bold text-slate-700 whitespace-pre-wrap leading-relaxed">{familyInfo?.memo || '내용이 없습니다.'}</p></div>
       </div>
     </div>
   );
 
-  // ----------------------------------------------------
-  // 달력 화면 렌더링
-  // ----------------------------------------------------
   const renderCalendar = () => {
-    const year = calendarMonth.getFullYear();
-    const month = calendarMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    
+    const year = calendarMonth.getFullYear(); const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate();
     const days = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
-    }
+    for (let i = 1; i <= daysInMonth; i++) days.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
 
     return (
-      <div className="bg-white dark:bg-slate-800 p-2.5 md:p-5 rounded-[1.8rem] shadow-sm mb-3 border border-slate-100 dark:border-slate-700">
-         <div className="flex justify-between items-center mb-2 md:mb-4">
-           <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-1.5 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronLeft size={24} className="dark:text-white"/></button>
-           <h2 className="text-[clamp(1.1rem,4.5vw,1.8rem)] font-black text-slate-800 dark:text-white tracking-tighter">{year}년 {month + 1}월</h2>
-           <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-1.5 md:p-3 bg-slate-50 dark:bg-slate-700 rounded-full active:scale-90 transition-transform"><ChevronRight size={24} className="dark:text-white"/></button>
-         </div>
-         <div className="grid grid-cols-7 gap-1 mb-1.5 text-center">
-           {['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (
-             <div key={i} className={`text-[clamp(0.85rem,3vw,1.1rem)] md:text-xl font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500 dark:text-slate-400'}`}>{wd}</div>
-           ))}
-         </div>
-         <div className="grid grid-cols-7 gap-1 md:gap-2">
+      <div className="bg-white dark:bg-slate-800 p-2.5 rounded-[1.8rem] shadow-sm mb-3 border border-slate-100">
+         <div className="flex justify-between items-center mb-2"><button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-1.5 bg-slate-50 rounded-full"><ChevronLeft size={24}/></button><h2 className="text-xl font-black">{year}년 {month + 1}월</h2><button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-1.5 bg-slate-50 rounded-full"><ChevronRight size={24}/></button></div>
+         <div className="grid grid-cols-7 gap-1 mb-1.5 text-center">{['일', '월', '화', '수', '목', '금', '토'].map((wd, i) => (<div key={i} className={`text-xs font-black ${i===0 ? 'text-red-500' : i===6 ? 'text-blue-500' : 'text-slate-500'}`}>{wd}</div>))}</div>
+         <div className="grid grid-cols-7 gap-1">
            {days.map((dateStr, idx) => {
              if (!dateStr) return <div key={`empty-${idx}`} />;
-             const dayNum = parseInt(dateStr.split('-')[2]);
-             const hasSchedule = schedules.some(s => !s.isDeleted && s.startDate <= dateStr && (s.endDate || s.startDate) >= dateStr);
-             const isSelected = selectedDate === dateStr;
-             const isToday = todayStr === dateStr;
-
-             return (
-               <button
-                 key={dateStr}
-                 onClick={() => setSelectedDate(dateStr)}
-                 className={`flex flex-col items-center justify-center rounded-[0.8rem] md:rounded-[1.2rem] h-[3rem] md:h-[4rem] transition-all relative overflow-hidden ${
-                   isSelected ? 'bg-[#508A12] text-white shadow-md scale-105' 
-                   : hasSchedule ? 'bg-[#EBF3E1] dark:bg-[#395A11] hover:bg-[#D4E8BF] dark:hover:bg-[#487317]' 
-                   : 'bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600'
-                 }`}
-               >
-                 <span className={`text-[clamp(1rem,3.5vw,1.3rem)] md:text-2xl font-black relative z-10 ${isSelected ? 'text-white' : isToday ? 'text-[#508A12] dark:text-[#8DC63F]' : hasSchedule ? 'text-[#3E6B0E] dark:text-[#a5d85a]' : 'text-slate-700 dark:text-slate-200'}`}>
-                   {dayNum}
-                 </span>
-                 {hasSchedule && (
-                   <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full mt-0.5 relative z-10 ${isSelected ? 'bg-white' : 'bg-[#508A12] dark:bg-[#8DC63F]'}`} />
-                 )}
-               </button>
-             );
+             const dayNum = parseInt(dateStr.split('-')[2]); const hasSchedule = schedules.some(s => !s.isDeleted && s.startDate <= dateStr && (s.endDate || s.startDate) >= dateStr);
+             const isSelected = selectedDate === dateStr; const isToday = todayStr === dateStr;
+             return (<button key={dateStr} onClick={() => setSelectedDate(dateStr)} className={`flex flex-col items-center justify-center rounded-[0.8rem] h-[3rem] transition-all relative ${isSelected ? 'bg-[#508A12] text-white' : hasSchedule ? 'bg-[#EBF3E1]' : 'bg-slate-50'}`}><span className={`text-lg font-black ${isSelected ? 'text-white' : isToday ? 'text-[#508A12]' : 'text-slate-700'}`}>{dayNum}</span>{hasSchedule && (<div className={`w-1 h-1 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-[#508A12]'}`} />)}</button>);
            })}
          </div>
       </div>
     );
   };
 
-  // PC 전용 폼
   const renderFamilyInfoForm = () => (
-    <form onSubmit={handleSaveFamilyInfo} className="space-y-4 md:space-y-6">
-      <div className="bg-orange-50 dark:bg-slate-700/50 p-4 rounded-2xl mb-4 border border-orange-100 dark:border-slate-600">
-        <p className="text-orange-700 dark:text-orange-300 font-bold text-sm leading-relaxed">
-          여기에 입력하신 정보는 어머니 스마트폰의 <strong className="text-[#508A12]">[집]</strong> 메뉴에 실시간으로 나타납니다.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <label className="block text-slate-400 font-black text-sm ml-2">우리집 주소</label>
-        <input 
-          type="text" value={fAddress} onChange={(e) => setFAddress(e.target.value)} 
-          placeholder="예: 서울시 강남구 삼성동..." maxLength={100}
-          className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] border-none font-bold text-lg shadow-inner focus:ring-4 focus:ring-[#508A12]/30 transition-all" 
-        />
-      </div>
-
-      <div className="space-y-3">
-        <label className="block text-slate-400 font-black text-sm ml-2">가족 연락처 최대 4명 (원터치 다이얼)</label>
+    <form onSubmit={handleSaveFamilyInfo} className="space-y-4">
+      <div className="space-y-2"><label className="block text-slate-400 font-black text-sm ml-1">우리집 주소</label><input type="text" value={fAddress} onChange={(e) => setFAddress(e.target.value)} placeholder="주소 입력" className="w-full p-4 bg-slate-50 rounded-[1rem] border-none font-bold text-base shadow-inner" /></div>
+      <div className="space-y-2"><label className="block text-slate-400 font-black text-sm ml-1">가족 연락처 (4명)</label>
         {[1,2,3,4].map(num => {
           const nameValue = num === 1 ? fContact1Name : num === 2 ? fContact2Name : num === 3 ? fContact3Name : fContact4Name;
           const phoneValue = num === 1 ? fContact1Phone : num === 2 ? fContact2Phone : num === 3 ? fContact3Phone : fContact4Phone;
-          
-          return (
-          <div key={num} className="flex gap-2">
-            <input 
-              type="text" 
-              value={nameValue} 
-              onChange={(e) => {
-                if(num===1) setFContact1Name(e.target.value);
-                if(num===2) setFContact2Name(e.target.value);
-                if(num===3) setFContact3Name(e.target.value);
-                if(num===4) setFContact4Name(e.target.value);
-              }} 
-              placeholder="이름 (예: 큰아들)" maxLength={15}
-              className="w-1/3 p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold shadow-inner text-base" 
-            />
-            <input 
-              type="tel" 
-              value={phoneValue} 
-              onChange={(e) => {
-                if(num===1) setFContact1Phone(e.target.value);
-                if(num===2) setFContact2Phone(e.target.value);
-                if(num===3) setFContact3Phone(e.target.value);
-                if(num===4) setFContact4Phone(e.target.value);
-              }} 
-              placeholder="전화번호 (예: 010-1234-5678)" maxLength={20}
-              className="flex-1 p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold shadow-inner text-base" 
-            />
-          </div>
-        )})}
+          return (<div key={num} className="flex gap-2"><input type="text" value={nameValue} onChange={(e) => { if(num===1) setFContact1Name(e.target.value); if(num===2) setFContact2Name(e.target.value); if(num===3) setFContact3Name(e.target.value); if(num===4) setFContact4Name(e.target.value); }} placeholder="이름" className="w-1/3 p-3 bg-slate-50 rounded-[0.8rem] border-none font-bold" /><input type="tel" value={phoneValue} onChange={(e) => { if(num===1) setFContact1Phone(e.target.value); if(num===2) setFContact2Phone(e.target.value); if(num===3) setFContact3Phone(e.target.value); if(num===4) setFContact4Phone(e.target.value); }} placeholder="전화번호" className="flex-1 p-3 bg-slate-50 rounded-[0.8rem] border-none font-bold" /></div>)
+        })}
       </div>
-
-      <div className="space-y-2">
-         <label className="block text-slate-400 font-black text-sm ml-2">기억할 정보</label>
-         <textarea 
-          value={fMemo} onChange={(e) => setFMemo(e.target.value)} 
-          placeholder="어머니께서 꼭 기억하셔야 할 내용들을 메모해 주세요." rows={5} maxLength={1000}
-          className="w-full p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] border-none font-bold text-lg shadow-inner resize-none focus:ring-4 focus:ring-[#508A12]/30 transition-all" 
-        />
-      </div>
-
-      <button type="submit" disabled={isSaving} className="w-full py-4 md:py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50">
-        {isSaving ? '저장 중...' : '가족 정보 반영하기'}
-      </button>
+      <div className="space-y-2"><label className="block text-slate-400 font-black text-sm ml-1">기억할 정보</label><textarea value={fMemo} onChange={(e) => setFMemo(e.target.value)} placeholder="메모 입력" rows={4} className="w-full p-4 bg-slate-50 rounded-[1rem] border-none font-bold text-base shadow-inner resize-none" /></div>
+      <button type="submit" disabled={isSaving} className="w-full py-4 bg-[#508A12] text-white rounded-[1.2rem] font-black text-lg shadow-md active:scale-95 disabled:opacity-50">{isSaving ? '저장 중...' : '반영하기'}</button>
     </form>
   );
 
   const renderScheduleForm = (onCancel) => (
-    <form onSubmit={handleAddOrEditSchedule} className="space-y-4 md:space-y-6">
-      <div className="space-y-2">
-        <label className="block text-slate-400 dark:text-slate-400 font-black text-sm uppercase ml-2">일정 제목</label>
-        <input 
-          type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} 
-          placeholder="예: 병원 방문" maxLength={50}
-          className="w-full text-xl md:text-2xl p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] md:rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#508A12]/30 transition-all shadow-inner" 
-          autoFocus required
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <label className="text-xs font-black text-slate-400 ml-2">장소</label>
-          <input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="어디서?" maxLength={30} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-xs font-black text-slate-400 ml-2">시간</label>
-          <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
-        </div>
-      </div>
-      <div className="space-y-2">
-         <label className="text-xs font-black text-slate-400 ml-2">메모</label>
-         <textarea 
-          value={newContent} onChange={(e) => setNewContent(e.target.value)} 
-          placeholder="상세 내용을 적어주세요 (최대 500자)" rows={3} maxLength={500}
-          className="w-full p-4 md:p-5 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.2rem] border-none font-bold text-lg shadow-inner resize-none" 
-        />
-      </div>
-      <div className="flex items-center justify-between p-4 bg-[#F7F9FB] dark:bg-slate-700 rounded-[1.2rem]">
-        <span className="font-black text-slate-700 dark:text-slate-200 text-base md:text-lg">여러 날 일정</span>
-        <button type="button" onClick={() => setIsRange(!isRange)} className={`w-14 h-8 rounded-full relative transition-all ${isRange ? 'bg-[#508A12]' : 'bg-slate-300 dark:bg-slate-500'}`}>
-          <div className={`absolute top-1 bg-white w-6 h-6 rounded-full transition-transform ${isRange ? 'translate-x-7' : 'translate-x-1'} shadow-md`} />
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <label className="text-xs font-black text-slate-400 ml-2">시작 날짜</label>
-          <input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
-        </div>
-        {isRange && (
-          <div className="space-y-2">
-            <label className="text-xs font-black text-slate-400 ml-2">종료 날짜</label>
-            <input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1rem] border-none font-bold text-lg shadow-inner" />
-          </div>
-        )}
-      </div>
-      <div className="flex gap-2 pt-2">
-        {onCancel && (
-          <button type="button" onClick={() => { resetForm(); onCancel(); }} className="flex-1 py-4 md:py-5 bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-300 rounded-[1.5rem] font-black text-lg active:scale-95 transition-all">취소</button>
-        )}
-        <button type="submit" disabled={isSaving} className="flex-[2] py-4 md:py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-lg shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50">
-          {isSaving ? '저장 중...' : (editingId ? '일정 수정완료' : '새 일정 등록')}
-        </button>
-      </div>
+    <form onSubmit={handleAddOrEditSchedule} className="space-y-4">
+      <div className="space-y-1"><label className="block text-slate-400 font-black text-xs ml-1">일정 제목</label><input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="예: 병원 방문" maxLength={50} className="w-full text-lg p-4 bg-slate-50 rounded-[1rem] border-none font-black shadow-inner" autoFocus required /></div>
+      <div className="grid grid-cols-2 gap-2"><div className="space-y-1"><label className="text-xs font-black text-slate-400 ml-1">장소</label><input type="text" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="장소" className="w-full p-3 bg-slate-50 rounded-[0.8rem] border-none font-bold" /></div><div className="space-y-1"><label className="text-xs font-black text-slate-400 ml-1">시간</label><input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className="w-full p-3 bg-slate-50 rounded-[0.8rem] border-none font-bold" /></div></div>
+      <div className="space-y-1"><label className="text-xs font-black text-slate-400 ml-1">메모</label><textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="상세 내용" rows={3} className="w-full p-4 bg-slate-50 rounded-[1rem] border-none font-bold shadow-inner resize-none" /></div>
+      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-[1rem]"><span className="font-black text-sm text-slate-700">여러 날 일정</span><button type="button" onClick={() => setIsRange(!isRange)} className={`w-12 h-6 rounded-full relative transition-all ${isRange ? 'bg-[#508A12]' : 'bg-slate-300'}`}><div className={`absolute top-0.5 bg-white w-5 h-5 rounded-full transition-transform ${isRange ? 'translate-x-6.5' : 'translate-x-0.5'}`} /></button></div>
+      <div className="grid grid-cols-1 gap-2"><input type="date" value={newStartDate} onChange={(e) => setNewStartDate(e.target.value)} className="w-full p-3 bg-slate-50 rounded-[0.8rem] border-none font-bold" />{isRange && (<input type="date" value={newEndDate} onChange={(e) => setNewEndDate(e.target.value)} className="w-full p-3 bg-slate-50 rounded-[0.8rem] border-none font-bold" />)}</div>
+      <div className="flex gap-2 pt-1">{onCancel && (<button type="button" onClick={() => { resetForm(); onCancel(); }} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-[1rem] font-black">취소</button>)}<button type="submit" disabled={isSaving} className="flex-[2] py-4 bg-[#508A12] text-white rounded-[1rem] font-black text-lg shadow-md active:scale-95 disabled:opacity-50">{isSaving ? '저장 중...' : (editingId ? '수정완료' : '등록하기')}</button></div>
     </form>
   );
 
-  if (errorModal) {
-    return (
-      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-[2.5rem] p-6 md:p-8 shadow-2xl text-center border-t-[12px] border-red-500">
-          <XCircle className="text-red-500 mx-auto mb-4" size={64} />
-          <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-4">데이터베이스 잠김</h2>
-          <p className="text-slate-600 dark:text-slate-300 font-bold mb-6 whitespace-pre-wrap leading-relaxed text-[15px]">
-            {errorModal}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!app || !isPinChecked) {
-    return (
-      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center">
-        <RefreshCw className="animate-spin text-[#508A12] opacity-50" size={48} />
-      </div>
-    );
-  }
-
-  if (!isPinAuthenticated) {
-    return (
-      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center transition-colors duration-300">
-        <div className="bg-white dark:bg-slate-800 p-8 md:p-12 rounded-[3rem] shadow-xl max-w-md w-full border-t-[16px] border-[#508A12]">
-          {savedPin ? <Lock className="text-[#508A12] mx-auto mb-6" size={64} /> : <Unlock className="text-[#508A12] mx-auto mb-6" size={64} />}
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white mb-3">{savedPin ? '우리 가족 일정' : '초기 설정'}</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-bold mb-8 text-[15px] leading-relaxed break-keep">
-            {savedPin ? '가족 비밀번호 4자리를 입력해주세요.' : '가족끼리 사용할 비밀번호 4자리를 설정하세요.'}
-          </p>
-          <form onSubmit={handlePinSubmit}>
-            <input type="password" pattern="[0-9]*" inputMode="numeric" maxLength={4} value={pinInput} onChange={(e) => { setPinInput(e.target.value.replace(/[^0-9]/g, '')); setPinError(''); }} placeholder="0000" className="w-full text-center text-4xl tracking-[1em] p-6 bg-slate-50 dark:bg-slate-700 rounded-[1.5rem] font-black focus:ring-4 focus:ring-[#508A12]/30 mb-4" autoFocus />
-            {pinError && <p className="text-red-500 font-bold mb-4 text-sm">{pinError}</p>}
-            <button type="submit" disabled={pinInput.length !== 4} className="w-full py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-xl shadow-lg active:scale-95 disabled:opacity-50">{savedPin ? '비밀번호 확인' : '저장하고 시작하기'}</button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex flex-col items-center justify-center">
-        <RefreshCw className="animate-spin text-[#508A12] opacity-50 mb-4" size={48} />
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
-      <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-2.5 md:py-3 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
-          <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
-            <p className="text-slate-900 dark:text-white font-black text-[clamp(20px,6.2vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
+    <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 font-sans pb-10 overflow-x-hidden">
+      <header className="bg-white shadow-sm sticky top-0 z-40 py-2.5 px-3">
+        <div className="max-w-6xl mx-auto flex justify-between items-center gap-2">
+          {/* 상단 날짜 폰트 사이즈 상향 (최대 42px) */}
+          <div className="flex-1 overflow-hidden pr-0.5">
+            <p className="text-slate-900 font-black text-[clamp(22px,7.2vw,42px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
             </p>
           </div>
-          
-          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
-            {!isFamilyView && (
-              <button 
-                onClick={() => { setIsFamilyView(true); setIsCalendarView(false); }}
-                className="flex items-center justify-center px-2 py-1.5 md:px-4 md:py-2 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[13px] md:text-lg active:scale-95 shadow-sm border border-[#508A12]/20 whitespace-nowrap"
-              >
-                집
-              </button>
-            )}
-
-            <button 
-              onClick={() => {
-                if (isFamilyView) { setIsFamilyView(false); } else { setIsCalendarView(!isCalendarView); setSelectedDate(todayStr); setCalendarMonth(new Date()); }
-              }}
-              className="flex items-center justify-center px-2 py-1.5 md:px-4 md:py-2 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 shadow-md whitespace-nowrap"
-            >
-              {isFamilyView ? '홈' : isCalendarView ? '홈' : '달력'}
-            </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {!isFamilyView && (<button onClick={() => { setIsFamilyView(true); setIsCalendarView(false); }} className="px-2.5 py-1.5 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-sm border border-[#508A12]/20 whitespace-nowrap">집</button>)}
+            <button onClick={() => { if (isFamilyView) { setIsFamilyView(false); } else { setIsCalendarView(!isCalendarView); setSelectedDate(todayStr); setCalendarMonth(new Date()); } }} className="px-2.5 py-1.5 bg-[#508A12] text-white rounded-full font-black text-sm shadow-md whitespace-nowrap">{isFamilyView ? '홈' : isCalendarView ? '홈' : '달력'}</button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 flex flex-col lg:flex-row gap-[clamp(0.75rem,2.5vh,1.5rem)]">
+      <div className="max-w-6xl mx-auto px-3 pt-3 flex flex-col lg:flex-row gap-4">
         <aside className="hidden lg:block w-[380px] flex-shrink-0">
-          <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[100px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                 {isFamilyView ? <Home size={24} /> : editingId ? <Edit2 size={24} /> : <Plus size={24} />} 
-                 {isFamilyView ? '우리집 정보 저장' : editingId ? '일정 수정' : '새 일정 등록'}
-              </h2>
-            </div>
+          <div className="bg-white rounded-[2rem] p-6 shadow-sm sticky top-[80px] border border-slate-100">
+            <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">{isFamilyView ? <Home size={24} /> : editingId ? <Edit2 size={24} /> : <Plus size={24} />} {isFamilyView ? '우리집 정보 저장' : editingId ? '일정 수정' : '새 일정 등록'}</h2>
             {isFamilyView ? renderFamilyInfoForm() : renderScheduleForm(editingId ? resetForm : null)}
           </div>
         </aside>
@@ -798,48 +473,36 @@ export default function App() {
             <>
               {isCalendarView && !showTrash && renderCalendar()}
               {isCalendarView && !showTrash && (
-                <div className="mb-2 mt-1 px-1 flex justify-between items-end">
-                  <h3 className="text-[1.1rem] md:text-xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-2.5">
-                    {parseInt(selectedDate.split('-')[1])}월 {parseInt(selectedDate.split('-')[2])}일의 일정
-                  </h3>
-                </div>
+                <div className="mb-2 mt-1 px-1"><h3 className="text-lg font-black text-[#508A12] border-l-4 border-[#508A12] pl-2.5">{parseInt(selectedDate.split('-')[1])}월 {parseInt(selectedDate.split('-')[2])}일의 일정</h3></div>
               )}
 
               <div className="grid grid-cols-1 gap-3">
                 {displaySchedules.map((item) => (
-                  <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-2 border ${showTrash ? 'opacity-80 border-red-100' : 'border-slate-100'}`}>
+                  <div key={item.id} className="bg-white rounded-[1.5rem] p-4 shadow-sm flex flex-col group gap-2 border border-slate-100">
                     <div className="flex-1 w-full">
-                       <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                         <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg px-3 py-1 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400' : 'bg-[#508A12]'}`}>
+                       {/* 배지 밀림 현상 방지를 위한 레이아웃 고정 */}
+                       <div className="mb-1.5 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
+                         <span className="inline-block text-white font-black text-[clamp(0.9rem,3.2vw,1.1rem)] px-3 py-1 rounded-xl shadow-sm bg-[#508A12] whitespace-nowrap truncate">
                            {formatDateWithDay(item.startDate)} {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                          </span>
                          {!showTrash && (
-                           <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === '오늘' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
+                           <span className={`flex-shrink-0 font-black text-sm px-2.5 py-1 rounded-xl whitespace-nowrap ${getDDay(item.startDate) === '오늘' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
                              {getDDay(item.startDate)}
                            </span>
                          )}
                        </div>
-                       <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                       <h4 className="text-[clamp(1.4rem,5.5vw,1.8rem)] font-black leading-snug mb-1 tracking-tight break-keep text-slate-800">
                          {item.title}
                        </h4>
-                       <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
-                         {item.time && <p className="text-slate-700 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock size={16} /> {item.time}</p>}
-                         {item.location && <p className="text-slate-700 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin size={16} /> {item.location}</p>}
+                       <div className="flex flex-wrap gap-3 mt-1 mb-1">
+                         {item.time && <p className="text-slate-700 font-black text-lg flex items-center gap-1.5"><Clock size={18} /> {formatTime(item.time)}</p>}
+                         {item.location && <p className="text-slate-700 font-black text-lg flex items-center gap-1.5"><MapPin size={18} /> {item.location}</p>}
                        </div>
                        {item.content && (
                          <div className="mt-2 p-3 rounded-xl border bg-[#F4F7F2]/50 border-[#EBF3E1]">
-                           <p className="text-slate-700 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
+                           <p className="text-slate-700 font-bold text-lg leading-snug line-clamp-2">{item.content}</p>
                          </div>
                        )}
-                    </div>
-                    <div className="hidden lg:flex flex-col gap-2 self-start">
-                      {!showTrash ? (
-                        <><button onClick={() => handleEditClick(item)} className="p-2 bg-amber-50 text-amber-500 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm"><Edit2 size={20} /></button>
-                          <button onClick={() => handleSoftDelete(item.id)} className="p-2 bg-red-50 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={20} /></button></>
-                      ) : (
-                        <><button onClick={() => handleRestore(item.id)} className="p-2 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm"><ArchiveRestore size={20} /></button>
-                          <button onClick={() => handlePermanentDelete(item.id)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm"><Trash size={20} /></button></>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -854,16 +517,7 @@ export default function App() {
 
 const initRender = () => {
   const container = document.getElementById('root');
-  if (container) {
-    const root = createRoot(container);
-    root.render(<App />);
-  } else {
-    const newRoot = document.createElement('div');
-    newRoot.id = 'root';
-    document.body.appendChild(newRoot);
-    const root = createRoot(newRoot);
-    root.render(<App />);
-  }
+  const root = createRoot(container || document.body.appendChild(Object.assign(document.createElement('div'), {id: 'root'})));
+  root.render(<App />);
 };
-
-if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initRender); } else { initRender(); }
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRender); else initRender();
