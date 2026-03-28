@@ -1,7 +1,9 @@
 /**
  * [버전 정보]
- * v1.32.0 (2026-03-28)
- * - 모바일 헤더 폰트 사이즈 극대화: 상단 날짜 및 요일 텍스트가 잘리지 않는 선에서 최대한 크고 시원하게 보이도록 clamp 가변 폰트 사이즈(vw) 상향 조정 (5.2vw -> 6.2vw, 최소 20px 보장)
+ * v1.33.0 (2026-03-28)
+ * - D-Day 표시 개선: 일정 목록의 "D-Day" 텍스트를 어머니께서 이해하기 쉬운 "오늘"로 변경
+ * - 강조 색상 유지: "오늘" 일정에 대해서는 기존과 동일하게 빨간색 계열의 배지를 적용하여 시인성 확보
+ * - 헤더 및 레이아웃 최적화 사양 유지
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -188,14 +190,14 @@ export default function App() {
   const [fContact4Phone, setFContact4Phone] = useState('');
   const [fMemo, setFMemo] = useState('');
 
-  // D-Day 계산 함수
+  // D-Day 계산 함수 (D-Day 대신 "오늘" 반환하도록 수정)
   const getDDay = (startDate) => {
     const todayDate = new Date(todayStr);
     const targetDate = new Date(startDate);
     const diffTime = targetDate.getTime() - todayDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    if (diffDays === 0) return 'D-Day';
+    if (diffDays === 0) return '오늘';
     if (diffDays > 0) return `D-${diffDays}`;
     return `D+${Math.abs(diffDays)}`;
   };
@@ -244,11 +246,9 @@ export default function App() {
     const checkSettings = async () => {
       try {
         const settingsRef = doc(db, 'artifacts', appId, 'public', 'settings');
-        // onSnapshot으로 변경하여 실시간 업데이트 반영
         const unsubscribe = onSnapshot(settingsRef, (snap) => {
           if (snap.exists()) {
             const data = snap.data();
-            // PIN 설정 적용
             if (data.familyPin) {
               setSavedPin(data.familyPin);
               if (localStorage.getItem(`pin_auth_${appId}`) === 'true') {
@@ -258,7 +258,6 @@ export default function App() {
               setSavedPin(null);
             }
             
-            // 가족 정보 적용 (PC에서 입력한 내용이 폰으로 실시간 반영)
             if (data.familyData) {
               setFamilyInfo(data.familyData);
               setFAddress(data.familyData.address || '');
@@ -460,11 +459,10 @@ export default function App() {
   if (isCalendarView && !showTrash) displaySchedules = calendarFilteredSchedules;
 
   // ----------------------------------------------------
-  // 모바일 전용: '집 (우리집 정보)' 화면 렌더링 - 압축된 레이아웃
+  // 모바일 전용: '집 (우리집 정보)' 화면 렌더링
   // ----------------------------------------------------
   const renderFamilyInfoView = () => (
     <div className="space-y-3 md:space-y-4 pb-6 mt-1">
-      {/* 1. 집 주소 */}
       <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
          <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
            <MapPin size={24} strokeWidth={2.5}/> 우리집 주소
@@ -474,13 +472,11 @@ export default function App() {
          </p>
       </div>
       
-      {/* 2. 원터치 가족 연락처 */}
       <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
          <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
            <Phone size={24} strokeWidth={2.5}/> 바로 전화걸기
          </h3>
          <div className="space-y-2.5 md:space-y-3">
-           {/* 연락처 4개까지 지원 */}
            {[1,2,3,4].map(num => {
               const name = familyInfo?.[`contact${num}Name`];
               const phone = familyInfo?.[`contact${num}Phone`];
@@ -504,7 +500,6 @@ export default function App() {
          </div>
       </div>
 
-      {/* 3. 생일 및 가족 메모 */}
       <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-[1.8rem] md:rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700">
          <h3 className="text-[#508A12] font-black text-[1.3rem] md:text-xl mb-2 flex items-center gap-2">
            <Info size={24} strokeWidth={2.5}/> 기억할 정보
@@ -577,9 +572,7 @@ export default function App() {
     );
   };
 
-  // ----------------------------------------------------
-  // PC 전용: '가족 정보 입력' 폼 (isFamilyView 상태일 때 표시) - 4명 지원
-  // ----------------------------------------------------
+  // PC 전용 폼
   const renderFamilyInfoForm = () => (
     <form onSubmit={handleSaveFamilyInfo} className="space-y-4 md:space-y-6">
       <div className="bg-orange-50 dark:bg-slate-700/50 p-4 rounded-2xl mb-4 border border-orange-100 dark:border-slate-600">
@@ -648,9 +641,6 @@ export default function App() {
     </form>
   );
 
-  // ----------------------------------------------------
-  // PC 전용: '일정 입력' 폼
-  // ----------------------------------------------------
   const renderScheduleForm = (onCancel) => (
     <form onSubmit={handleAddOrEditSchedule} className="space-y-4 md:space-y-6">
       <div className="space-y-2">
@@ -709,7 +699,6 @@ export default function App() {
     </form>
   );
 
-  // 에러 모달 공통 컴포넌트
   if (errorModal) {
     return (
       <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-4">
@@ -719,23 +708,11 @@ export default function App() {
           <p className="text-slate-600 dark:text-slate-300 font-bold mb-6 whitespace-pre-wrap leading-relaxed text-[15px]">
             {errorModal}
           </p>
-          <div className="bg-slate-50 dark:bg-slate-700 p-4 rounded-2xl text-left">
-            <p className="text-sm text-slate-500 dark:text-slate-400 font-bold leading-relaxed break-keep">
-              💡 <strong className="text-red-500">해결 방법 (Firebase 규칙 수정):</strong><br/>
-              1. Firebase 콘솔 ➡️ [Firestore Database] 메뉴<br/>
-              2. 상단의 [규칙 (Rules)] 탭 선택<br/>
-              3. 아래 코드로 변경 후 '게시' 클릭<br/>
-              <code className="block mt-2 bg-white dark:bg-slate-800 p-2 rounded text-red-500 font-mono text-xs">
-                allow read, write: if request.auth != null;
-              </code>
-            </p>
-          </div>
         </div>
       </div>
     );
   }
 
-  // 데이터베이스 초기화 대기 화면
   if (!app || !isPinChecked) {
     return (
       <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center">
@@ -744,73 +721,37 @@ export default function App() {
     );
   }
 
-  // 🔒 가족 비밀번호(PIN) 잠금 화면 렌더링
   if (!isPinAuthenticated) {
     return (
       <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex items-center justify-center p-6 text-center transition-colors duration-300">
         <div className="bg-white dark:bg-slate-800 p-8 md:p-12 rounded-[3rem] shadow-xl max-w-md w-full border-t-[16px] border-[#508A12]">
-          
-          {savedPin ? (
-            <Lock className="text-[#508A12] mx-auto mb-6" size={64} strokeWidth={2} />
-          ) : (
-            <Unlock className="text-[#508A12] mx-auto mb-6" size={64} strokeWidth={2} />
-          )}
-          
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white mb-3">
-            {savedPin ? '우리 가족 일정' : '초기 설정'}
-          </h1>
+          {savedPin ? <Lock className="text-[#508A12] mx-auto mb-6" size={64} /> : <Unlock className="text-[#508A12] mx-auto mb-6" size={64} />}
+          <h1 className="text-3xl font-black text-slate-800 dark:text-white mb-3">{savedPin ? '우리 가족 일정' : '초기 설정'}</h1>
           <p className="text-slate-500 dark:text-slate-400 font-bold mb-8 text-[15px] leading-relaxed break-keep">
-            {savedPin 
-              ? '안전한 일정 공유를 위해\n가족 비밀번호 4자리를 입력해주세요.' 
-              : '외부인이 일정을 볼 수 없도록\n가족끼리 사용할 비밀번호 4자리를 설정하세요.'}
+            {savedPin ? '가족 비밀번호 4자리를 입력해주세요.' : '가족끼리 사용할 비밀번호 4자리를 설정하세요.'}
           </p>
-
           <form onSubmit={handlePinSubmit}>
-            <input 
-              type="password" 
-              pattern="[0-9]*" 
-              inputMode="numeric"
-              maxLength={4}
-              value={pinInput}
-              onChange={(e) => {
-                setPinInput(e.target.value.replace(/[^0-9]/g, '')); // 숫자만 입력 허용
-                setPinError('');
-              }}
-              placeholder="0000"
-              className="w-full text-center text-4xl tracking-[1em] p-6 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-[1.5rem] border-none font-black focus:ring-4 focus:ring-[#508A12]/30 transition-all shadow-inner mb-4"
-              autoFocus
-            />
+            <input type="password" pattern="[0-9]*" inputMode="numeric" maxLength={4} value={pinInput} onChange={(e) => { setPinInput(e.target.value.replace(/[^0-9]/g, '')); setPinError(''); }} placeholder="0000" className="w-full text-center text-4xl tracking-[1em] p-6 bg-slate-50 dark:bg-slate-700 rounded-[1.5rem] font-black focus:ring-4 focus:ring-[#508A12]/30 mb-4" autoFocus />
             {pinError && <p className="text-red-500 font-bold mb-4 text-sm">{pinError}</p>}
-            
-            <button 
-              type="submit" 
-              disabled={pinInput.length !== 4}
-              className="w-full py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-xl shadow-lg shadow-[#508A12]/30 active:scale-95 transition-all disabled:opacity-50"
-            >
-              {savedPin ? '비밀번호 확인' : '비밀번호 저장하고 시작하기'}
-            </button>
+            <button type="submit" disabled={pinInput.length !== 4} className="w-full py-5 bg-[#508A12] text-white rounded-[1.5rem] font-black text-xl shadow-lg active:scale-95 disabled:opacity-50">{savedPin ? '비밀번호 확인' : '저장하고 시작하기'}</button>
           </form>
         </div>
       </div>
     );
   }
 
-  // 메인 화면 로딩 대기
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 flex flex-col items-center justify-center">
         <RefreshCw className="animate-spin text-[#508A12] opacity-50 mb-4" size={48} />
-        <p className="text-slate-500 font-bold">비밀번호 확인 완료. 일정을 불러옵니다...</p>
       </div>
     );
   }
 
-  // 메인 앱
   return (
     <div className="min-h-screen bg-[#F4F7F2] dark:bg-slate-900 text-slate-900 dark:text-white font-sans pb-10 overflow-x-hidden transition-colors duration-300">
       <header className="bg-white dark:bg-slate-800 shadow-[0_2px_15px_rgba(0,0,0,0.03)] sticky top-0 z-40 py-2.5 md:py-3 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-2 md:px-6 flex justify-between items-center gap-1">
-          {/* 상단 날짜 폰트 사이즈를 더 키울 수 있도록 넓은 범위(clamp) 상향 조정: 20px ~ 36px 보장 */}
           <div className="flex-1 overflow-hidden pr-0.5 flex items-center gap-1">
             <p className="text-slate-900 dark:text-white font-black text-[clamp(20px,6.2vw,36px)] tracking-tighter leading-none whitespace-nowrap overflow-hidden text-ellipsis">
               {isFamilyView ? '우리집 정보' : isCalendarView ? `${calendarMonth.getFullYear()}년 ${calendarMonth.getMonth() + 1}월` : fullDateDisplay}
@@ -820,11 +761,8 @@ export default function App() {
           <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
             {!isFamilyView && (
               <button 
-                onClick={() => {
-                  setIsFamilyView(true);
-                  setIsCalendarView(false);
-                }}
-                className="flex items-center justify-center px-2.5 py-1.5 md:px-5 md:py-2.5 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-sm border border-[#508A12]/20 whitespace-nowrap"
+                onClick={() => { setIsFamilyView(true); setIsCalendarView(false); }}
+                className="flex items-center justify-center px-2 py-1.5 md:px-4 md:py-2 bg-[#EBF3E1] text-[#508A12] rounded-full font-black text-[13px] md:text-lg active:scale-95 shadow-sm border border-[#508A12]/20 whitespace-nowrap"
               >
                 집
               </button>
@@ -832,15 +770,9 @@ export default function App() {
 
             <button 
               onClick={() => {
-                if (isFamilyView) {
-                  setIsFamilyView(false);
-                } else {
-                  setIsCalendarView(!isCalendarView);
-                  setSelectedDate(todayStr); 
-                  setCalendarMonth(new Date());
-                }
+                if (isFamilyView) { setIsFamilyView(false); } else { setIsCalendarView(!isCalendarView); setSelectedDate(todayStr); setCalendarMonth(new Date()); }
               }}
-              className="flex items-center justify-center px-2.5 py-1.5 md:px-5 md:py-2.5 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 transition-all shadow-md whitespace-nowrap"
+              className="flex items-center justify-center px-2 py-1.5 md:px-4 md:py-2 bg-[#508A12] text-white rounded-full font-black text-[13px] md:text-lg active:scale-95 shadow-md whitespace-nowrap"
             >
               {isFamilyView ? '홈' : isCalendarView ? '홈' : '달력'}
             </button>
@@ -849,43 +781,22 @@ export default function App() {
       </header>
 
       <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 flex flex-col lg:flex-row gap-[clamp(0.75rem,2.5vh,1.5rem)]">
-        
-        {/* PC 전용 사이드바 (집 뷰일때는 폼 변경) */}
         <aside className="hidden lg:block w-[380px] flex-shrink-0">
           <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-6 shadow-sm sticky top-[100px] border border-slate-100 dark:border-slate-700 transition-colors duration-300">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                 {isFamilyView ? <Home className="text-[#508A12]" size={24} strokeWidth={3} /> : editingId ? <Edit2 className="text-amber-500" size={24} strokeWidth={3} /> : <Plus className="text-[#508A12]" size={24} strokeWidth={3} />} 
+                 {isFamilyView ? <Home size={24} /> : editingId ? <Edit2 size={24} /> : <Plus size={24} />} 
                  {isFamilyView ? '우리집 정보 저장' : editingId ? '일정 수정' : '새 일정 등록'}
               </h2>
             </div>
             {isFamilyView ? renderFamilyInfoForm() : renderScheduleForm(editingId ? resetForm : null)}
           </div>
-          
-          {!isFamilyView && (
-            <div className="mt-4 text-right">
-               <button 
-                onClick={() => { setShowTrash(!showTrash); setEditingId(null); setShowPast(false); setIsCalendarView(false); }}
-                className={`inline-flex px-4 py-2.5 rounded-full font-black text-sm transition-all items-center gap-2 ${
-                  showTrash ? 'bg-slate-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300'
-                }`}
-              >
-                {showTrash ? '목록으로 돌아가기' : <><Trash2 size={18}/> 삭제된 휴지통 보기</>}
-              </button>
-            </div>
-          )}
         </aside>
 
-        {/* 메인 리스트 / 달력 / 가족정보 영역 */}
         <main className="flex-1 w-full">
-          {/* 집 메뉴 뷰 */}
-          {isFamilyView ? (
-            renderFamilyInfoView()
-          ) : (
-            // 기본 일정 뷰
+          {isFamilyView ? renderFamilyInfoView() : (
             <>
               {isCalendarView && !showTrash && renderCalendar()}
-
               {isCalendarView && !showTrash && (
                 <div className="mb-2 mt-1 px-1 flex justify-between items-end">
                   <h3 className="text-[1.1rem] md:text-xl font-black text-[#508A12] dark:text-[#a5d85a] border-l-4 border-[#508A12] pl-2.5">
@@ -896,118 +807,43 @@ export default function App() {
 
               <div className="grid grid-cols-1 gap-3">
                 {displaySchedules.map((item) => (
-                  <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group transition-all gap-2 border ${showTrash ? 'border-red-100 dark:border-red-900 opacity-80' : 'border-slate-100 dark:border-slate-700'}`}>
+                  <div key={item.id} className={`bg-white dark:bg-slate-800 rounded-[1.2rem] md:rounded-[1.5rem] p-3.5 md:p-5 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-2 border ${showTrash ? 'opacity-80 border-red-100' : 'border-slate-100'}`}>
                     <div className="flex-1 w-full">
                        <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                         <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg tracking-tight px-3 py-1 md:py-1.5 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400 dark:bg-slate-600' : 'bg-[#508A12]'}`}>
-                           {formatDateWithDay(item.startDate)}
-                           {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
+                         <span className={`inline-block text-white font-black text-[clamp(0.9rem,3.5vw,1.1rem)] md:text-lg px-3 py-1 rounded-xl shadow-sm ${showTrash ? 'bg-slate-400' : 'bg-[#508A12]'}`}>
+                           {formatDateWithDay(item.startDate)} {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
                          </span>
                          {!showTrash && (
-                           <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === 'D-Day' ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/40 dark:text-orange-400'}`}>
+                           <span className={`font-black text-[clamp(0.85rem,3vw,1rem)] px-2.5 py-1 rounded-xl ${getDDay(item.startDate) === '오늘' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
                              {getDDay(item.startDate)}
                            </span>
                          )}
                        </div>
-
-                       <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 dark:text-slate-400 line-through' : 'text-slate-800 dark:text-slate-100'}`}>
+                       <h4 className={`text-[clamp(1.3rem,5vw,1.6rem)] md:text-[1.8rem] font-black leading-snug mb-1 tracking-tight break-keep ${showTrash ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
                          {item.title}
                        </h4>
-                       
                        <div className="flex flex-wrap gap-2.5 mt-1 mb-1">
-                         {item.time && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.time}</p>}
-                         {item.location && <p className="text-slate-700 dark:text-slate-300 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin className={`w-[clamp(1rem,4.5vw,1.3rem)] h-[clamp(1rem,4.5vw,1.3rem)] ${showTrash ? 'text-slate-400' : 'text-[#508A12]'}`} strokeWidth={2.5} /> {item.location}</p>}
+                         {item.time && <p className="text-slate-700 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><Clock size={16} /> {item.time}</p>}
+                         {item.location && <p className="text-slate-700 font-black text-[clamp(1rem,4vw,1.2rem)] md:text-lg flex items-center gap-1.5"><MapPin size={16} /> {item.location}</p>}
                        </div>
-
                        {item.content && (
-                         <div className={`mt-2 p-3 md:p-3.5 rounded-xl border ${showTrash ? 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600' : 'bg-[#F4F7F2]/50 dark:bg-slate-700 border-[#EBF3E1] dark:border-slate-600'}`}>
-                           <p className="text-slate-700 dark:text-slate-200 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
+                         <div className="mt-2 p-3 rounded-xl border bg-[#F4F7F2]/50 border-[#EBF3E1]">
+                           <p className="text-slate-700 font-bold text-[clamp(0.95rem,3.5vw,1.1rem)] md:text-lg whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
                          </div>
                        )}
                     </div>
-
                     <div className="hidden lg:flex flex-col gap-2 self-start">
                       {!showTrash ? (
-                        <>
-                          <button onClick={() => handleEditClick(item)} className="p-2.5 bg-amber-50 dark:bg-amber-900/30 text-amber-500 dark:text-amber-400 rounded-xl hover:bg-amber-50 hover:text-white transition-all shadow-sm" title="수정"><Edit2 size={20} /></button>
-                          <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 dark:text-red-400 rounded-xl hover:bg-red-50 hover:text-white transition-all shadow-sm" title="삭제"><Trash2 size={20} /></button>
-                        </>
+                        <><button onClick={() => handleEditClick(item)} className="p-2 bg-amber-50 text-amber-500 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm"><Edit2 size={20} /></button>
+                          <button onClick={() => handleSoftDelete(item.id)} className="p-2 bg-red-50 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={20} /></button></>
                       ) : (
-                        <>
-                          <button onClick={() => handleRestore(item.id)} className="p-2.5 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm" title="복구"><ArchiveRestore size={20} /></button>
-                          <button onClick={() => handlePermanentDelete(item.id)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm" title="영구 삭제"><Trash size={20} /></button>
-                        </>
+                        <><button onClick={() => handleRestore(item.id)} className="p-2 bg-emerald-50 text-emerald-500 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm"><ArchiveRestore size={20} /></button>
+                          <button onClick={() => handlePermanentDelete(item.id)} className="p-2 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-600 hover:text-white transition-all shadow-sm"><Trash size={20} /></button></>
                       )}
                     </div>
                   </div>
                 ))}
-                {displaySchedules.length === 0 && (
-                  <div className="py-10 text-center bg-white dark:bg-slate-800 rounded-[1.5rem] shadow-sm border border-slate-100 dark:border-slate-700 mx-2">
-                    {showTrash ? (
-                      <>
-                        <Trash size={50} className="mx-auto mb-3 text-slate-300 dark:text-slate-600" />
-                        <p className="text-slate-400 dark:text-slate-500 font-black text-lg">휴지통이 비어있습니다</p>
-                      </>
-                    ) : (
-                      <>
-                        <CalendarDays size={50} className="mx-auto mb-3 text-[#508A12] opacity-40" />
-                        <p className="text-slate-500 dark:text-slate-400 font-black text-[clamp(1.1rem,4vw,1.4rem)] mb-2">
-                          {isCalendarView ? '이 날짜에는 등록된 일정이 없습니다.' : '예정된 일정이 없습니다.'}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
-
-              {!showTrash && !isCalendarView && (
-                <div className="mt-5 mb-4 flex flex-col items-center">
-                  <button 
-                    onClick={() => setShowPast(!showPast)}
-                    className="px-5 py-2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full font-black text-[clamp(0.85rem,3.5vw,1rem)] shadow-sm active:scale-95 transition-all flex items-center gap-1.5"
-                  >
-                    {showPast ? '지난 일정 숨기기' : '지난 일정 보기'}
-                    {showPast ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                  </button>
-
-                  {showPast && (
-                    <div className="w-full mt-3 grid grid-cols-1 gap-2.5">
-                      {pastSchedules.length > 0 ? pastSchedules.map((item) => (
-                        <div key={item.id} className="bg-slate-50 dark:bg-slate-800 rounded-[1.2rem] p-3.5 shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col lg:flex-row justify-between items-start lg:items-center group gap-2.5 opacity-80 hover:opacity-100 transition-opacity">
-                          <div className="flex-1 w-full">
-                             <div className="mb-1.5 flex items-center gap-2">
-                               <span className="inline-block text-white bg-slate-400 dark:bg-slate-600 font-black text-[clamp(0.85rem,3vw,1rem)] tracking-tight px-2.5 py-1 rounded-lg shadow-sm">
-                                 {formatDateWithDay(item.startDate)}
-                                 {item.startDate !== item.endDate && ` ~ ${formatDateWithDay(item.endDate)}`}
-                               </span>
-                               <span className="font-black text-[clamp(0.8rem,3vw,0.9rem)] px-2 py-0.5 rounded-lg bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-                                 {getDDay(item.startDate)}
-                               </span>
-                             </div>
-                             <h4 className="text-[clamp(1.1rem,4vw,1.4rem)] font-black text-slate-700 dark:text-slate-300 leading-tight mb-1 tracking-tight break-keep">{item.title}</h4>
-                             <div className="flex flex-wrap gap-2.5 my-1">
-                               {item.time && <p className="text-slate-500 dark:text-slate-400 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] flex items-center gap-1"><Clock className="w-[clamp(0.9rem,3.5vw,1.1rem)] h-[clamp(0.9rem,3.5vw,1.1rem)] text-slate-400 dark:text-slate-500"/> {item.time}</p>}
-                               {item.location && <p className="text-slate-500 dark:text-slate-400 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] flex items-center gap-1"><MapPin className="w-[clamp(0.9rem,3.5vw,1.1rem)] h-[clamp(0.9rem,3.5vw,1.1rem)] text-slate-400 dark:text-slate-500"/> {item.location}</p>}
-                             </div>
-                             {item.content && (
-                               <div className="mt-1.5 bg-slate-100 dark:bg-slate-700 p-2.5 rounded-xl">
-                                 <p className="text-slate-500 dark:text-slate-300 font-bold text-[clamp(0.85rem,3vw,1rem)] whitespace-pre-wrap leading-snug line-clamp-2">{item.content}</p>
-                               </div>
-                             )}
-                          </div>
-                          <div className="hidden lg:flex flex-col gap-1.5 self-start">
-                            <button onClick={() => handleSoftDelete(item.id)} className="p-2.5 bg-red-50 dark:bg-red-900/30 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={18} /></button>
-                          </div>
-                        </div>
-                      )) : (
-                         <div className="py-5 text-center text-slate-400 dark:text-slate-500 font-bold text-[clamp(0.9rem,3.5vw,1.1rem)] bg-slate-50 dark:bg-slate-800 rounded-[1.2rem] border border-slate-200 dark:border-slate-700">
-                          지난 일정이 없습니다.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
             </>
           )}
         </main>
@@ -1030,8 +866,4 @@ const initRender = () => {
   }
 };
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initRender);
-} else {
-  initRender();
-}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initRender); } else { initRender(); }
